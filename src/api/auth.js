@@ -1,16 +1,19 @@
 import axios from "axios";
-import { API_BASE_URL } from "../config/api";
+import { API_URL, normalizeApiPath } from "../config/api";
 import { getToken } from "../auths/authStorage";
 
 const client = axios.create({
-  baseURL: API_BASE_URL,
+  baseURL: API_URL,
   timeout: 15000,
   headers: { "Content-Type": "application/json" },
 });
 
-/** JWT sur les routes protégées (ex. valider-embarquement) — lu depuis SecureStore à chaque requête. */
 client.interceptors.request.use(
   async (config) => {
+    if (config.url) {
+      config.url = normalizeApiPath(config.url);
+    }
+
     const isFormData =
       typeof FormData !== "undefined" &&
       config.data != null &&

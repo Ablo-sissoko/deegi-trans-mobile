@@ -11,7 +11,7 @@ import {
   ActivityIndicator,
 } from "react-native";
 import { useNavigation, useRoute } from "@react-navigation/native";
-import { Phone, Lock } from "lucide-react-native";
+import { Phone, Lock } from "lucide-react-native";   
 import Toast from "react-native-toast-message";
 import COLORS from "../utils/COLORS";
 import { loginRequest } from "../api/auth";

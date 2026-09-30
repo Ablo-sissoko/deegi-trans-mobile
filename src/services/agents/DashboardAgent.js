@@ -11,12 +11,42 @@ import {
   Dimensions,
 } from "react-native";
 import { MaterialIcons } from "@expo/vector-icons";
-import axios from "axios";
+import { authClient } from "../../api/auth";
 import COLORS from "../../utils/COLORS";
-import { getToken, getUserJson } from "../../auths/authStorage";
+import { getUserJson } from "../../auths/authStorage";
 
 const { width } = Dimensions.get("window");
-const API_URL = "http://localhost:5000/api";
+
+const EMPTY_STATS = {
+  colisEnregistres: 0,
+  colisLivres: 0,
+  billetsScannes: 0,
+  enAttente: 0,
+  totalColis: 0,
+  tauxReussite: 0,
+};
+
+function countColisByStatus(colisList) {
+  const rows = Array.isArray(colisList) ? colisList : [];
+  let colisEnregistres = 0;
+  let colisLivres = 0;
+  let enAttente = 0;
+
+  for (const row of rows) {
+    const st = String(row?.statut || row?.Statut || "").toUpperCase();
+    if (st === "LIVRE" || st === "LIVRÉ") {
+      colisLivres += 1;
+    } else if (st === "EN_ATTENTE" || st === "EN ATTENTE" || st === "CREE" || st === "CRÉÉ") {
+      enAttente += 1;
+    } else {
+      colisEnregistres += 1;
+    }
+  }
+
+  const totalColis = rows.length;
+  const tauxReussite = totalColis > 0 ? Math.round((colisLivres / totalColis) * 100) : 0;
+  return { colisEnregistres, colisLivres, enAttente, totalColis, tauxReussite };
+}
 
 const DashboardAgent = ({ navigation }) => {
   const [stats, setStats] = useState({
@@ -48,34 +78,37 @@ const DashboardAgent = ({ navigation }) => {
 
   const fetchStats = async () => {
     try {
-      const token = await getToken();
       const user = await getUserJson();
       setAgentName(user?.nom || "Agent");
       setAgentPrenom(user?.prenom || "");
 
-      const response = await axios.get(`${API_URL}/agents/stats`, {
-        headers: { Authorization: `Bearer ${token}` },
-      });
+      const compagnieId = user?.compagnie_id;
+      let billetsScannes = 0;
+      let colisStats = { ...EMPTY_STATS };
 
-      if (response.data) {
-        const total = response.data.colisEnregistres + response.data.colisLivres;
-        const taux = total > 0 ? (response.data.colisLivres / total) * 100 : 0;
-        setStats({
-          ...response.data,
-          totalColis: total,
-          tauxReussite: Math.round(taux),
-        });
+      try {
+        const { data: todayData } = await authClient.get("/api/operations/today");
+        billetsScannes = Number(todayData?.summary?.billets_total || 0);
+      } catch {
+        /* route absente sur certaines versions serveur */
       }
+
+      if (compagnieId != null) {
+        try {
+          const { data: colisData } = await authClient.get(`/api/colis/compagnie/${compagnieId}`);
+          colisStats = countColisByStatus(colisData?.colis);
+        } catch (colisErr) {
+          console.warn("Stats colis agent:", colisErr?.response?.status, colisErr?.message);
+        }
+      }
+
+      setStats({
+        ...colisStats,
+        billetsScannes,
+      });
     } catch (error) {
       console.error("Erreur chargement stats:", error);
-      setStats({
-        colisEnregistres: 24,
-        colisLivres: 18,
-        billetsScannes: 42,
-        enAttente: 6,
-        totalColis: 42,
-        tauxReussite: 75,
-      });
+      setStats(EMPTY_STATS);
     } finally {
       setLoading(false);
     }

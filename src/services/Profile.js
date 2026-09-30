@@ -15,7 +15,7 @@ export default function Profile() {
   const { user, signOut } = useAuth();
 
   const handleLogout = () => {
-    Alert.alert(
+    Alert.alert( 
       "Déconnexion",
       "Voulez-vous vous déconnecter ?",
       [

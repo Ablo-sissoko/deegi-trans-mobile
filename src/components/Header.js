@@ -1,6 +1,6 @@
 import React from "react";
 import { Image, Pressable, StyleSheet, Text, View } from "react-native";
-import { useNavigation } from "@react-navigation/native";
+import { useNavigation, DrawerActions } from "@react-navigation/native";
 import { Bell, Menu } from "lucide-react-native";
 import COLORS from "../utils/COLORS";
 
@@ -10,11 +10,16 @@ const Header = () => {
   return (
     <View style={styles.container}>
       <Pressable
-       
+        
         accessibilityRole="button"
         style={styles.header}
       >
-        <Pressable style={styles.burgerBtn}>
+        <Pressable
+          style={styles.burgerBtn}
+          onPress={() => navigation.dispatch(DrawerActions.openDrawer())}
+          accessibilityRole="button"
+          accessibilityLabel="Ouvrir le menu"
+        >
           <Menu size={30} color={COLORS.textStrong} />
         </Pressable>
        

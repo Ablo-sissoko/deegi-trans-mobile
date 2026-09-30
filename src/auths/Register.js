@@ -16,8 +16,8 @@ import Toast from "react-native-toast-message";
 import COLORS from "../utils/COLORS";
 import { registerRequest } from "../api/auth";
 
-export default function Register() {
-  const navigation = useNavigation();
+export default function Register() { 
+  const navigation = useNavigation(); 
   const [nom, setNom] = useState("");
   const [prenom, setPrenom] = useState("");
   const [numero_telephone, setNumeroTelephone] = useState("");

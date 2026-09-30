@@ -7,10 +7,10 @@ import {
   ScrollView,
   Image,
   TextInput,
-  Modal,
-  FlatList,
   StatusBar,
   ActivityIndicator,
+  RefreshControl,
+  Animated,
 } from "react-native";
 import {
   MapPin,
@@ -20,160 +20,371 @@ import {
   ChevronRight,
   Star,
   Users,
-  User,
-  UserPlus,
-  Trash2,
   ArrowLeft,
   Filter,
   Award,
+  Info,
+  Luggage,
+  Shield,
+  Route,
+  Phone,
+  Search,
+  X,
 } from "lucide-react-native";
-import BottomSheet, { BottomSheetBackdrop, BottomSheetView } from "@gorhom/bottom-sheet";
+import BottomSheet, {
+  BottomSheetBackdrop,
+  BottomSheetScrollView,
+  BottomSheetView,
+} from "@gorhom/bottom-sheet";
 import { useNavigation, useRoute } from "@react-navigation/native";
 import Toast from "react-native-toast-message";
 import COLORS from "../utils/COLORS";
-import { authClient } from "../api/auth";
-import { API_BASE_URL } from "../config/api";
-import { getToken } from "../auths/authStorage";
+
+/** Mode démo : données fictives (pas d’API). */
+const USE_MOCK_TRIPS = true;
 
 const LOGO_PLACEHOLDER =
   "https://images.unsplash.com/photo-1544620347-c4fd4a3d5957?w=100&q=80";
 
-function resolveLogoUrl(logo) {
-  if (!logo || String(logo).trim() === "") return LOGO_PLACEHOLDER;
-  const s = String(logo);
-  if (/^https?:\/\//i.test(s)) return s;
-  const root = String(API_BASE_URL || "").replace(/\/$/, "");
-  const path = s.startsWith("/") ? s : `/${s}`;
-  return root ? `${root}${path}` : LOGO_PLACEHOLDER;
+const MOCK_COMPANY_LOGOS = [
+  "https://images.unsplash.com/photo-1544620347-c4fd4a3d5957?w=120&q=80",
+  "https://images.unsplash.com/photo-1570125909232-eb263c188f7e?w=120&q=80",
+  "https://images.unsplash.com/photo-1469854523086-cc02fe5d8800?w=120&q=80",
+];
+
+function buildMockTrips({ departure, destination, dateStr }) {
+  const from = departure || "Bamako";
+  const to = destination || "Sikasso";
+  const day = dateStr || new Date().toISOString().split("T")[0];
+
+  const base = [
+    {
+      id: "mock-1",
+      trajetBackendId: 1001,
+      company: {
+        id: "c1",
+        name: "Bani Transport",
+        logo: MOCK_COMPANY_LOGOS[0],
+        rating: 4.6,
+        totalReviews: 128,
+        isPremium: true,
+        phone: "+223 70 12 34 56",
+      },
+      departure: { city: from, time: "06:30", location: "Gare routière" },
+      arrival: { city: to, time: "11:45", location: "Gare centrale" },
+      duration: "5h 15",
+      price: 8500,
+      availableSeats: 12,
+      totalSeats: 45,
+      busType: "VIP",
+      amenities: ["Climatisation", "WiFi", "Prise électrique"],
+      departureDate: day,
+      distanceKm: 375,
+      vehicle: "Mercedes Tourismo",
+      plate: "AB-2045-ML",
+      seatLayout: "2+2 · sièges inclinables",
+      baggage: "2 bagages · 25 kg max",
+      checkIn: "30 min avant départ",
+      stops: ["Bougouni", "Kolondiéba"],
+      refundable: true,
+      cancellation: "Annulation gratuite jusqu’à 6h avant le départ",
+      note: "Embarquement prioritaire pour les passagers Premium. Eau offerte à bord.",
+    },
+    {
+      id: "mock-2",
+      trajetBackendId: 1002,
+      company: {
+        id: "c2",
+        name: "Sama Express",
+        logo: MOCK_COMPANY_LOGOS[1],
+        rating: 4.2,
+        totalReviews: 86,
+        isPremium: false,
+        phone: "+223 76 55 01 22",
+      },
+      departure: { city: from, time: "08:00", location: "Autogare" },
+      arrival: { city: to, time: "13:30", location: "Centre-ville" },
+      duration: "5h 30",
+      price: 6500,
+      availableSeats: 22,
+      totalSeats: 50,
+      busType: "STANDARD",
+      amenities: ["Climatisation", "TV"],
+      departureDate: day,
+      distanceKm: 375,
+      vehicle: "Yutong ZK6122",
+      plate: "CD-8812-ML",
+      seatLayout: "2+3 · standard",
+      baggage: "1 bagage · 20 kg max",
+      checkIn: "45 min avant départ",
+      stops: ["Bougouni"],
+      refundable: false,
+      cancellation: "Non remboursable — report possible sous conditions",
+      note: "Arrêt pause café à Bougouni (~15 min).",
+    },
+    {
+      id: "mock-3",
+      trajetBackendId: 1003,
+      company: {
+        id: "c3",
+        name: "Niaré Voyages",
+        logo: MOCK_COMPANY_LOGOS[2],
+        rating: 4.8,
+        totalReviews: 210,
+        isPremium: true,
+        phone: "+223 66 90 11 33",
+      },
+      departure: { city: from, time: "10:15", location: "Gare AGM" },
+      arrival: { city: to, time: "15:00", location: "Gare" },
+      duration: "4h 45",
+      price: 9500,
+      availableSeats: 6,
+      totalSeats: 40,
+      busType: "LUXE",
+      amenities: ["Climatisation", "WiFi", "Prise électrique", "TV"],
+      departureDate: day,
+      distanceKm: 370,
+      vehicle: "Volvo 9700",
+      plate: "EF-3301-ML",
+      seatLayout: "2+2 · cuir premium",
+      baggage: "2 bagages · 30 kg max",
+      checkIn: "20 min avant départ",
+      stops: [],
+      refundable: true,
+      cancellation: "Remboursement 80 % jusqu’à 12h avant",
+      note: "Trajet direct sans arrêt commercial. Snacks inclus.",
+    },
+    {
+      id: "mock-4",
+      trajetBackendId: 1004,
+      company: {
+        id: "c4",
+        name: "Mali Line",
+        logo: LOGO_PLACEHOLDER,
+        rating: 3.9,
+        totalReviews: 54,
+        isPremium: false,
+        phone: "+223 79 44 20 10",
+      },
+      departure: { city: from, time: "14:00", location: "Gare sud" },
+      arrival: { city: to, time: "19:40", location: "Gare" },
+      duration: "5h 40",
+      price: 5500,
+      availableSeats: 31,
+      totalSeats: 52,
+      busType: "STANDARD",
+      amenities: ["TV"],
+      departureDate: day,
+      distanceKm: 380,
+      vehicle: "Golden Dragon",
+      plate: "GH-1022-ML",
+      seatLayout: "2+3 · économique",
+      baggage: "1 bagage · 15 kg max",
+      checkIn: "40 min avant départ",
+      stops: ["Bougouni", "Finkolo"],
+      refundable: false,
+      cancellation: "Aucun remboursement après achat",
+      note: "Tarif économique. Présentez-vous tôt aux heures de pointe.",
+    },
+    {
+      id: "mock-5",
+      trajetBackendId: 1005,
+      company: {
+        id: "c5",
+        name: "Horizon Bus",
+        logo: MOCK_COMPANY_LOGOS[0],
+        rating: 4.4,
+        totalReviews: 97,
+        isPremium: false,
+        phone: "+223 65 18 77 09",
+      },
+      departure: { city: from, time: "16:45", location: "Autogare" },
+      arrival: { city: to, time: "22:10", location: "Gare nocturne" },
+      duration: "5h 25",
+      price: 7000,
+      availableSeats: 18,
+      totalSeats: 48,
+      busType: "CONFORT",
+      amenities: ["Climatisation", "WiFi"],
+      departureDate: day,
+      distanceKm: 375,
+      vehicle: "Zhongtong LCK6125",
+      plate: "IJ-7760-ML",
+      seatLayout: "2+2 · confort",
+      baggage: "2 bagages · 20 kg max",
+      checkIn: "35 min avant départ",
+      stops: ["Bougouni"],
+      refundable: true,
+      cancellation: "Annulation possible jusqu’à 3h avant (frais 10 %)",
+      note: "Idéal pour un départ en fin d’après-midi.",
+    },
+    {
+      id: "mock-6",
+      trajetBackendId: 1006,
+      company: {
+        id: "c6",
+        name: "Prestige Travel",
+        logo: MOCK_COMPANY_LOGOS[1],
+        rating: 4.9,
+        totalReviews: 312,
+        isPremium: true,
+        phone: "+223 90 00 22 18",
+      },
+      departure: { city: from, time: "21:00", location: "Terminal VIP" },
+      arrival: { city: to, time: "01:50", location: "Gare" },
+      duration: "4h 50",
+      price: 12000,
+      availableSeats: 4,
+      totalSeats: 36,
+      busType: "VIP",
+      amenities: ["Climatisation", "WiFi", "Prise électrique", "TV"],
+      departureDate: day,
+      distanceKm: 365,
+      vehicle: "Scania Touring HD",
+      plate: "KL-5500-ML",
+      seatLayout: "2+1 · lit semi-couchette",
+      baggage: "3 bagages · 35 kg max",
+      checkIn: "25 min avant départ",
+      stops: [],
+      refundable: true,
+      cancellation: "Annulation gratuite jusqu’à 8h avant",
+      note: "Service de nuit VIP. Couverture, oreiller et collation inclus.",
+    },
+  ];
+
+  return base;
 }
 
-function mapSearchItemToTrip(item, fallbackDate) {
-  return {
-    id: String(item.id),
-    trajetBackendId: item.id,
-    company: {
-      id: String(item.compagnie?.id ?? ""),
-      name: item.compagnie?.nom || "Compagnie",
-      logo: resolveLogoUrl(item.compagnie?.logo),
-      rating: item.compagnie?.rating ?? 4,
-      totalReviews: item.compagnie?.totalReviews ?? 0,
-      isPremium: !!item.compagnie?.isPremium,
-    },
-    departure: {
-      city: item.departure?.nom || "",
-      time: item.departure?.time || "--:--",
-      location: item.departure?.location || "",
-    },
-    arrival: {
-      city: item.arrival?.nom || "",
-      time: item.arrival?.time || "--:--",
-      location: item.arrival?.location || "",
-    },
-    duration: item.duration || "—",
-    price: Math.round(Number(item.price) || 0),
-    availableSeats: item.availableSeats ?? 0,
-    totalSeats: item.totalSeats ?? 0,
-    busType: item.busType || "STANDARD",
-    amenities: Array.isArray(item.amenities) ? item.amenities : [],
-    departureDate: item.departure?.date || fallbackDate,
-  };
+async function fetchMockTrips({ departure, destination, dateStr }) {
+  await new Promise((r) => setTimeout(r, 450));
+  return buildMockTrips({ departure, destination, dateStr });
+}
+
+const GOLD = "#D4AF37";
+
+function BlinkingMapPin({ size = 12 }) {
+  const opacity = useRef(new Animated.Value(1)).current;
+
+  useEffect(() => {
+    const animation = Animated.loop(
+      Animated.sequence([
+        Animated.timing(opacity, {
+          toValue: 0.2,
+          duration: 500,
+          useNativeDriver: true,
+        }),
+        Animated.timing(opacity, {
+          toValue: 1,
+          duration: 500,
+          useNativeDriver: true,
+        }),
+      ]),
+    );
+    animation.start();
+    return () => animation.stop();
+  }, [opacity]);
+
+  return (
+    <Animated.View style={{ opacity }}>
+      <MapPin size={size} color={GOLD} />
+    </Animated.View>
+  );
+}
+
+function PulsingSelectButton({ onPress, children }) {
+  const scale = useRef(new Animated.Value(1)).current;
+
+  useEffect(() => {
+    const animation = Animated.loop(
+      Animated.sequence([
+        Animated.timing(scale, {
+          toValue: 1.05,
+          duration: 750,
+          useNativeDriver: true,
+        }),
+        Animated.timing(scale, {
+          toValue: 1,
+          duration: 750,
+          useNativeDriver: true,
+        }),
+      ]),
+    );
+    animation.start();
+    return () => animation.stop();
+  }, [scale]);
+
+  return (
+    <Animated.View style={{ transform: [{ scale }] }}>
+      <TouchableOpacity
+        style={styles.selectButton}
+        onPress={onPress}
+        activeOpacity={0.85}
+      >
+        {children}
+      </TouchableOpacity>
+    </Animated.View>
+  );
 }
 
 export default function ListeTrajets() {
   const navigation = useNavigation();
   const route = useRoute();
-  const { departure, destination, date, tripType } = route.params || {};
-  const tripTypeApi =
-    route.params?.tripTypeApi ||
-    (String(route.params?.tripType || '').toLowerCase().includes('retour')
-      ? 'ALLER_RETOUR'
-      : 'ALLER_SIMPLE');
-
+  const { departure, destination, date } = route.params || {};
   const [selectedTrip, setSelectedTrip] = useState(null);
-  const [showPassengerForm, setShowPassengerForm] = useState(false);
-  const [selectedSeats, setSelectedSeats] = useState([]);
-  const [draftNom, setDraftNom] = useState("");
-  const [draftPrenom, setDraftPrenom] = useState("");
-  const [passagersList, setPassagersList] = useState([]);
-  const [submittingReservation, setSubmittingReservation] = useState(false);
   const [activeFilter, setActiveFilter] = useState("all");
   const [sortBy, setSortBy] = useState("price");
-  const [showFilters, setShowFilters] = useState(false);
+  const [searchQuery, setSearchQuery] = useState("");
   
   const filterSheetRef = useRef(null);
   const filterSnapPoints = useMemo(() => ["60%"], []);
+  const detailSheetRef = useRef(null);
+  const detailSnapPoints = useMemo(() => ["78%", "92%"], []);
 
   const [trips, setTrips] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
   const [loadError, setLoadError] = useState(null);
 
-  useEffect(() => {
-    const depId = route.params?.departureId;
-    const arrId = route.params?.destinationId;
-    const dateStr = route.params?.date;
-    const tripTypeApi =
-      route.params?.tripTypeApi ||
-      (String(route.params?.tripType || "").toLowerCase().includes("retour")
-        ? "ALLER_RETOUR"
-        : "ALLER_SIMPLE");
-    const returnDate = route.params?.returnDate;
+  const loadTrips = useCallback(
+    async ({ isRefresh = false } = {}) => {
+      const dateStr = route.params?.date;
+      const from = route.params?.departure;
+      const to = route.params?.destination;
 
-    if (depId == null || arrId == null || Number.isNaN(Number(depId)) || Number.isNaN(Number(arrId))) {
-      setLoadError(
-        "Sélectionnez le départ et la destination depuis l’accueil (villes avec identifiant).",
-      );
-      setTrips([]);
-      setLoading(false);
-      return;
-    }
-
-    let cancelled = false;
-    (async () => {
-      setLoading(true);
+      if (isRefresh) setRefreshing(true);
+      else setLoading(true);
       setLoadError(null);
-      try {
-        const params = {
-          departureId: Number(depId),
-          arrivalId: Number(arrId),
-          date: dateStr,
-          tripType: tripTypeApi,
-          limit: 50,
-          page: 1,
-          useCache: "true",
-        };
-        if (tripTypeApi === "ALLER_RETOUR" && returnDate) {
-          params.returnDate = returnDate;
-        }
-        const { data } = await authClient.get("/api/trajets-inteligents/search/intelligent", {
-          params,
-        });
-        if (cancelled) return;
-        const list = Array.isArray(data?.data) ? data.data : [];
-        setTrips(list.map((row) => mapSearchItemToTrip(row, dateStr)));
-      } catch (e) {
-        if (!cancelled) {
-          const msg =
-            e?.response?.data?.message || e?.message || "Impossible de charger les trajets";
-          setLoadError(msg);
-          setTrips([]);
-          Toast.show({ type: "error", text1: "Trajets", text2: String(msg) });
-        }
-      } finally {
-        if (!cancelled) setLoading(false);
-      }
-    })();
 
-    return () => {
-      cancelled = true;
-    };
-  }, [
-    route.params?.departureId,
-    route.params?.destinationId,
-    route.params?.date,
-    route.params?.tripType,
-    route.params?.tripTypeApi,
-    route.params?.returnDate,
-  ]);
+      try {
+        if (!USE_MOCK_TRIPS) {
+          throw new Error("API désactivée — activez USE_MOCK_TRIPS ou reconnectez l’API.");
+        }
+        const mapped = await fetchMockTrips({
+          departure: from,
+          destination: to,
+          dateStr,
+        });
+        setTrips(mapped);
+      } catch (e) {
+        const msg = e?.message || "Impossible de charger les trajets";
+        setLoadError(msg);
+        setTrips([]);
+        Toast.show({ type: "error", text1: "Trajets", text2: String(msg) });
+      } finally {
+        setLoading(false);
+        setRefreshing(false);
+      }
+    },
+    [route.params?.departure, route.params?.destination, route.params?.date],
+  );
+
+  useEffect(() => {
+    loadTrips();
+  }, [loadTrips]);
+
+  const onRefresh = useCallback(() => {
+    loadTrips({ isRefresh: true });
+  }, [loadTrips]);
 
   const renderBackdrop = useCallback(
     (props) => (
@@ -187,156 +398,90 @@ export default function ListeTrajets() {
     []
   );
 
-  const formatTime = (time) => {
-    return time;
-  };
-
   const formatPrice = (price) => {
     return `${price.toLocaleString()} FCFA`;
   };
 
-  const getFilteredAndSortedTrips = () => {
+  const filteredTrips = useMemo(() => {
     let filtered = [...trips];
+    const q = searchQuery.trim().toLowerCase();
+
+    if (q) {
+      filtered = filtered.filter((trip) => {
+        const haystack = [
+          trip.company?.name,
+          trip.busType,
+          trip.departure?.city,
+          trip.arrival?.city,
+          trip.departure?.location,
+          trip.arrival?.location,
+          trip.vehicle,
+          ...(trip.amenities || []),
+          trip.company?.isPremium ? "premium" : "standard",
+        ]
+          .filter(Boolean)
+          .join(" ")
+          .toLowerCase();
+        return haystack.includes(q);
+      });
+    }
 
     if (activeFilter !== "all") {
       if (activeFilter === "premium") {
-        filtered = filtered.filter(trip => trip.company.isPremium);
+        filtered = filtered.filter((trip) => trip.company.isPremium);
       } else if (activeFilter === "standard") {
-        filtered = filtered.filter(trip => !trip.company.isPremium);
+        filtered = filtered.filter((trip) => !trip.company.isPremium);
       } else if (activeFilter === "morning") {
-        filtered = filtered.filter(trip => parseInt(trip.departure.time) < 12);
+        filtered = filtered.filter((trip) => parseInt(trip.departure.time, 10) < 12);
       } else if (activeFilter === "afternoon") {
-        filtered = filtered.filter(trip => parseInt(trip.departure.time) >= 12);
+        filtered = filtered.filter((trip) => parseInt(trip.departure.time, 10) >= 12);
       }
     }
 
     if (sortBy === "price") {
       filtered.sort((a, b) => a.price - b.price);
     } else if (sortBy === "duration") {
-      filtered.sort((a, b) => parseInt(a.duration) - parseInt(b.duration));
+      filtered.sort((a, b) => parseInt(a.duration, 10) - parseInt(b.duration, 10));
     } else if (sortBy === "departure") {
       filtered.sort((a, b) => a.departure.time.localeCompare(b.departure.time));
     }
 
     return filtered;
-  };
+  }, [trips, searchQuery, activeFilter, sortBy]);
 
-  const closePassengerModal = useCallback(() => {
-    setShowPassengerForm(false);
-    setPassagersList([]);
-    setDraftNom("");
-    setDraftPrenom("");
-    setSelectedTrip(null);
-  }, []);
+  const dateLabel = date
+    ? new Date(date).toLocaleDateString("fr-FR", {
+        weekday: "short",
+        day: "numeric",
+        month: "short",
+      })
+    : "Date —";
 
-  const handleSelectTrip = (trip) => {
+  const openTripDetails = (trip) => {
     setSelectedTrip(trip);
-    setPassagersList([]);
-    setDraftNom("");
-    setDraftPrenom("");
-    setShowPassengerForm(true);
+    requestAnimationFrame(() => detailSheetRef.current?.expand());
   };
 
-  const handleAddPassager = () => {
-    const nom = draftNom.trim();
-    const prenom = draftPrenom.trim();
-    if (!nom || !prenom) {
-      Toast.show({
-        type: "error",
-        text1: "Champs requis",
-        text2: "Indiquez le nom et le prénom du passager.",
-      });
-      return;
-    }
-    setPassagersList((prev) => [
-      ...prev,
-      { key: `${Date.now()}-${prev.length}`, nom, prenom },
-    ]);
-    setDraftNom("");
-    setDraftPrenom("");
-  };
-
-  const handleRemovePassager = (key) => {
-    setPassagersList((prev) => prev.filter((p) => p.key !== key));
-  };
-
-  const handlePassengerSubmit = async () => {
-    if (!selectedTrip?.trajetBackendId) {
-      Toast.show({ type: "error", text1: "Trajet invalide" });
-      return;
-    }
-    if (passagersList.length < 1) {
-      Toast.show({
-        type: "error",
-        text1: "Ajoutez des passagers",
-        text2: "Utilisez le bouton « Ajouter » après avoir saisi nom et prénom.",
-      });
-      return;
-    }
-    const places = passagersList.length;
-    if (places > selectedTrip.availableSeats) {
-      Toast.show({
-        type: "error",
-        text1: "Places insuffisantes",
-        text2: `Il reste ${selectedTrip.availableSeats} place(s) sur ce trajet.`,
-      });
-      return;
-    }
-
-    const token = await getToken();
-    if (!token) {
-      Toast.show({
-        type: "error",
-        text1: "Connexion requise",
-        text2: "Connectez-vous pour effectuer une réservation.",
-      });
-      return;
-    }
-
-    setSubmittingReservation(true);
-    try {
-      await authClient.post(
-        "/api/reservations",
-        {
-          trajet_id: selectedTrip.trajetBackendId,
-          nombre_places: places,
-          type: tripTypeApi,
-          passagers: passagersList.map(({ nom, prenom }) => ({
-            nom: String(nom).trim(),
-            prenom: String(prenom).trim(),
-          })),
-        },
-        { headers: { Authorization: `Bearer ${token}` } },
-      );
-
-      closePassengerModal();
-      Toast.show({
-        type: "success",
-        text1: "Merci d'avoir réservé",
-        text2: "Votre réservation est enregistrée. Retrouvez votre billet dans Tickets.",
-      });
-      navigation.navigate("MainTabs", { screen: "Accueil" });
-    } catch (e) {
-      const msg = e?.response?.data?.message || e?.message || "Erreur";
-      Toast.show({
-        type: "error",
-        text1: "Réservation impossible",
-        text2: String(msg),
-      });
-    } finally {
-      setSubmittingReservation(false);
-    }
+  const handleConfirmSelect = () => {
+    if (!selectedTrip) return;
+    detailSheetRef.current?.close();
+    navigation.navigate("Reservation", {
+      trip: selectedTrip,
+      date,
+      departure,
+      destination,
+    });
   };
 
   const renderAmenities = (amenities) => {
     const icons = {
-      "Climatisation": "❄️",
-      "WiFi": "📶",
+      Climatisation: "❄️",
+      WiFi: "📶",
       "Prise électrique": "🔌",
-      "TV": "📺",
+      TV: "📺",
     };
-    
-    return amenities.slice(0, 3).map((amenity, index) => (
+
+    return (amenities || []).slice(0, 4).map((amenity, index) => (
       <View key={index} style={styles.amenityTag}>
         <Text style={styles.amenityText}>
           {icons[amenity] || "✓"} {amenity}
@@ -345,50 +490,89 @@ export default function ListeTrajets() {
     ));
   };
 
-  const renderStars = (rating) => {
-    return (
-      <View style={styles.starsContainer}>
-        <Star size={12} color={COLORS.warning} fill={COLORS.warning} />
-        <Text style={styles.ratingText}>{rating}</Text>
-      </View>
-    );
-  };
-
   return (
     <View style={styles.container}>
-      <StatusBar barStyle="dark-content" backgroundColor={COLORS.bgSoft} />
-     
-      
-      {/* Header avec infos de recherche */}
-      <View style={styles.searchHeader}>
-        <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backButton}>
-          <ArrowLeft size={24} color={COLORS.text} />
-        </TouchableOpacity>
-        <View style={styles.searchInfo}>
-          <View style={styles.routeInfo}>
-            <MapPin size={16} color={COLORS.primary} />
-            <Text style={styles.routeText}>
-              {departure} → {destination}
+      <StatusBar barStyle="dark-content" backgroundColor={COLORS.white} />
+
+      <View style={styles.header}>
+        <View style={styles.headerTop}>
+          <TouchableOpacity
+            onPress={() => navigation.goBack()}
+            style={styles.backButton}
+            accessibilityRole="button"
+            accessibilityLabel="Retour"
+          >
+            <ArrowLeft size={20} color={COLORS.textStrong} strokeWidth={2.2} />
+          </TouchableOpacity>
+
+          <View style={styles.headerTitleBlock}>
+            <Text style={styles.headerTitle}>Trajets disponibles</Text>
+            <Text style={styles.headerSubtitle}>
+              {loading ? "Recherche en cours…" : `${filteredTrips.length} résultat${filteredTrips.length > 1 ? "s" : ""}`}
             </Text>
           </View>
-          <View style={styles.dateInfo}>
-            <Calendar size={14} color={COLORS.muted} />
-            <Text style={styles.dateText}>
-              {date ? new Date(date).toLocaleDateString("fr-FR", {
-                weekday: "long",
-                day: "numeric",
-                month: "long",
-              }) : "Date non spécifiée"}
-            </Text>
-          </View>
+
+          <TouchableOpacity
+            onPress={() => filterSheetRef.current?.expand()}
+            style={[
+              styles.filterButton,
+              (activeFilter !== "all" || sortBy !== "price") && styles.filterButtonActive,
+            ]}
+            accessibilityRole="button"
+            accessibilityLabel="Filtres"
+          >
+            <Filter
+              size={18}
+              color={
+                activeFilter !== "all" || sortBy !== "price"
+                  ? COLORS.white
+                  : COLORS.primary
+              }
+            />
+          </TouchableOpacity>
         </View>
-        <TouchableOpacity onPress={() => filterSheetRef.current?.expand()} style={styles.filterButton}>
-          <Filter size={20} color={COLORS.primary} />
-        </TouchableOpacity>
+
+        
+
+        <View style={styles.searchBar}>
+          <Search size={18} color={COLORS.muted} />
+          <TextInput
+            style={styles.searchInput}
+            placeholder="Compagnie, type de bus, service…"
+            placeholderTextColor={COLORS.mutedStrong}
+            value={searchQuery}
+            onChangeText={setSearchQuery}
+            returnKeyType="search"
+            autoCorrect={false}
+            clearButtonMode="while-editing"
+          />
+          {searchQuery.length > 0 ? (
+            <TouchableOpacity
+              onPress={() => setSearchQuery("")}
+              hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+              style={styles.searchClear}
+            >
+              <X size={16} color={COLORS.muted} />
+            </TouchableOpacity>
+          ) : null}
+        </View>
       </View>
 
-      {/* Résultats */}
-      <ScrollView showsVerticalScrollIndicator={false} style={styles.tripsList}>
+      <ScrollView
+        showsVerticalScrollIndicator={false}
+        style={styles.tripsList}
+        contentContainerStyle={styles.tripsListContent}
+        keyboardShouldPersistTaps="handled"
+        refreshControl={
+          <RefreshControl
+            refreshing={refreshing}
+            onRefresh={onRefresh}
+            tintColor={COLORS.primary}
+            colors={[COLORS.primary]}
+            progressBackgroundColor={COLORS.white}
+          />
+        }
+      >
         {loading ? (
           <View style={styles.loadingBlock}>
             <ActivityIndicator size="large" color={COLORS.primary} />
@@ -398,92 +582,302 @@ export default function ListeTrajets() {
           <Text style={styles.loadErrorText}>{loadError}</Text>
         ) : (
           <>
-        <Text style={styles.resultsCount}>
-          {getFilteredAndSortedTrips().length} trajet(s) trouvé(s)
-        </Text>
-
-        {getFilteredAndSortedTrips().length === 0 ? (
-          <Text style={styles.emptyText}>Aucun trajet pour cette date et cette route.</Text>
-        ) : null}
-
-        {getFilteredAndSortedTrips().map((trip) => (
-          <TouchableOpacity
-            key={trip.id}
-            style={styles.tripCard}
-            onPress={() => handleSelectTrip(trip)}
-            activeOpacity={0.8}
-          >
-            {/* En-tête compagnie */}
-            <View style={styles.companyHeader}>
-              <Image source={{ uri: trip.company.logo }} style={styles.companyLogo} />
-              <View style={styles.companyInfo}>
-                <View style={styles.companyNameRow}>
-                  <Text style={styles.companyName}>{trip.company.name}</Text>
-                  {trip.company.isPremium && (
-                    <View style={styles.premiumBadge}>
-                      <Award size={12} color={COLORS.primary} />
-                      <Text style={styles.premiumText}>Premium</Text>
-                    </View>
-                  )}
-                </View>
-                <View style={styles.ratingRow}>
-                  {renderStars(trip.company.rating)}
-                  <Text style={styles.reviewsCount}>({trip.company.totalReviews} avis)</Text>
-                </View>
-              </View>
-            </View>
-
-            {/* Horaires */}
-            <View style={styles.scheduleContainer}>
-              <View style={styles.timePoint}>
-                <Text style={styles.time}>{trip.departure.time}</Text>
-                <Text style={styles.location}>{trip.departure.location}</Text>
-              </View>
-              <View style={styles.durationContainer}>
-                <View style={styles.line} />
-                <Text style={styles.duration}>{trip.duration}</Text>
-                <View style={styles.line} />
-              </View>
-              <View style={styles.timePoint}>
-                <Text style={styles.time}>{trip.arrival.time}</Text>
-                <Text style={styles.location}>{trip.arrival.location}</Text>
-              </View>
-            </View>
-
-            {/* Infos bus */}
-            <View style={styles.busInfo}>
-              <Bus size={14} color={COLORS.muted} />
-              <Text style={styles.busType}>{trip.busType}</Text>
-              <View style={styles.separator} />
-              <Users size={14} color={COLORS.muted} />
-              <Text style={styles.seats}>
-                {trip.availableSeats} places disponibles
+            <View style={styles.listHeaderRow}>
+              <Text style={styles.resultsCount}>
+                {searchQuery.trim()
+                  ? `${filteredTrips.length} correspondance${filteredTrips.length > 1 ? "s" : ""}`
+                  : `${filteredTrips.length} trajet${filteredTrips.length > 1 ? "s" : ""} trouvé${filteredTrips.length > 1 ? "s" : ""}`}
               </Text>
+              {activeFilter !== "all" ? (
+                <TouchableOpacity onPress={() => setActiveFilter("all")}>
+                  <Text style={styles.clearFilterLink}>Effacer filtre</Text>
+                </TouchableOpacity>
+              ) : null}
             </View>
 
-            {/* Amenities */}
-            <View style={styles.amenitiesContainer}>
-              {renderAmenities(trip.amenities)}
-            </View>
+            {filteredTrips.length === 0 ? (
+              <Text style={styles.emptyText}>
+                {searchQuery.trim()
+                  ? "Aucun trajet ne correspond à votre recherche."
+                  : "Aucun trajet pour cette date et cette route."}
+              </Text>
+            ) : null}
 
-            {/* Prix et réservation */}
-            <View style={styles.footer}>
-              <View>
-                <Text style={styles.priceLabel}>À partir de</Text>
-                <Text style={styles.price}>{formatPrice(trip.price)}</Text>
-              </View>
-              <TouchableOpacity style={styles.selectButton}>
-                <Text style={styles.selectButtonText}>Sélectionner</Text>
-                <ChevronRight size={16} color={COLORS.white} />
+            {filteredTrips.map((trip) => (
+              <TouchableOpacity
+                key={trip.id}
+                style={styles.tripCard}
+                onPress={() => openTripDetails(trip)}
+                activeOpacity={0.88}
+              >
+                <View style={styles.cardTop}>
+                  <Image source={{ uri: trip.company.logo }} style={styles.companyLogo} />
+                  <View style={styles.cardTopInfo}>
+                    <Text style={styles.companyName} numberOfLines={1}>
+                      {trip.company.name}
+                    </Text>
+                    <View style={styles.cardMetaRow}>
+                      <Star size={11} color={COLORS.warning} fill={COLORS.warning} />
+                      <Text style={styles.ratingText}>{trip.company.rating}</Text>
+                      {trip.company.isPremium ? (
+                        <View style={styles.premiumBadge}>
+                          <Text style={styles.premiumText}>Premium</Text>
+                        </View>
+                      ) : (
+                        <Text style={styles.busTypeChip}>{trip.busType}</Text>
+                      )}
+                    </View>
+                  </View>
+                  <View style={styles.priceBlock}>
+                    <Text style={styles.price}>{formatPrice(trip.price)}</Text>
+                    <Text style={styles.priceHint}>/ place</Text>
+                  </View>
+                </View>
+
+                <View style={styles.scheduleRow}>
+                  <View style={styles.timeCol}>
+                    <Text style={styles.time}>{trip.departure.time}</Text>
+                    <Text style={styles.cityMini} numberOfLines={1}>
+                      {trip.departure.city}
+                    </Text>
+                  </View>
+                  <View style={styles.durationMid}>
+                    <View style={styles.dot} />
+                    <View style={styles.dash} />
+                    <Text style={styles.duration}>{trip.duration}</Text>
+                    <View style={styles.dash} />
+                    <View style={[styles.dot, styles.dotEnd]} />
+                  </View>
+                  <View style={[styles.timeCol, styles.timeColEnd]}>
+                    <Text style={styles.time}>{trip.arrival.time}</Text>
+                    <Text style={styles.cityMini} numberOfLines={1}>
+                      {trip.arrival.city}
+                    </Text>
+                  </View>
+                </View>
+
+                <View style={styles.cardFooter}>
+                  <Text style={styles.seatsHint}>
+                    {trip.availableSeats} places restantes
+                  </Text>
+                  <ChevronRight size={16} color={COLORS.mutedStrong} />
+                </View>
               </TouchableOpacity>
-            </View>
-          </TouchableOpacity>
-        ))}
+            ))}
           </>
         )}
       </ScrollView>
 
-      {/* Bottom Sheet pour les filtres */}
+      <BottomSheet
+        ref={detailSheetRef}
+        index={-1}
+        snapPoints={detailSnapPoints}
+        enablePanDownToClose
+        backdropComponent={renderBackdrop}
+        backgroundStyle={styles.bottomSheetBackground}
+        handleIndicatorStyle={styles.sheetHandle}
+      >
+        {selectedTrip ? (
+          <BottomSheetScrollView
+            contentContainerStyle={styles.detailSheet}
+            showsVerticalScrollIndicator={false}
+          >
+            <View style={styles.detailHero}>
+              <View style={styles.detailTitleRow}>
+                <Text style={styles.detailEyebrow}>Détail du trajet</Text>
+                {selectedTrip.company.isPremium ? (
+                  <View style={styles.premiumBadge}>
+                    <Award size={10} color={COLORS.primary} />
+                    <Text style={styles.premiumText}>Premium</Text>
+                  </View>
+                ) : null}
+              </View>
+            </View>
+
+            <View style={styles.detailSchedule}>
+              <View style={styles.detailTimeBlock}>
+                <Text style={styles.detailPointLabel}>Départ</Text>
+                <Text style={styles.detailTime}>{selectedTrip.departure.time}</Text>
+                <Text style={styles.detailCity}>{selectedTrip.departure.city}</Text>
+                <View style={styles.locRow}>
+                  <BlinkingMapPin />
+                  <Text style={styles.detailLoc}>{selectedTrip.departure.location}</Text>
+                </View>
+              </View>
+              <View style={styles.detailDurationCol}>
+                <View style={styles.durationRing}>
+                  <Bus size={16} color={COLORS.primary} />
+                </View>
+                <View style={styles.durationLine} />
+                <Text style={styles.detailDuration}>{selectedTrip.duration}</Text>
+               
+                {selectedTrip.distanceKm ? (
+                  <Text style={styles.detailDistance}>{selectedTrip.distanceKm} km</Text>
+                ) : null}
+              </View>
+              <View style={[styles.detailTimeBlock, styles.timeColEnd]}>
+                <Text style={styles.detailPointLabel}>Arrivée</Text>
+                <Text style={styles.detailTime}>{selectedTrip.arrival.time}</Text>
+                <Text style={styles.detailCity}>{selectedTrip.arrival.city}</Text>
+                <View style={[styles.locRow, styles.locRowEnd]}>
+                  <BlinkingMapPin />
+                  <Text style={styles.detailLoc}>{selectedTrip.arrival.location}</Text>
+                </View>
+              </View>
+            </View>
+
+            <View style={styles.detailStats}>
+              <View style={styles.statCard}>
+                <Users size={16} color={COLORS.primary} />
+                <Text style={styles.statValue}>
+                  {selectedTrip.availableSeats}
+                </Text>
+                <Text style={styles.statCaption}>
+                  / {selectedTrip.totalSeats} places
+                </Text>
+              </View>
+              <View style={styles.statCard}>
+                <Clock size={16} color={COLORS.primary} />
+                <Text style={styles.statValue}>{selectedTrip.checkIn || "—"}</Text>
+                <Text style={styles.statCaption}>enregistrement</Text>
+              </View>
+              <View style={styles.statCard}>
+                <Luggage size={16} color={COLORS.primary} />
+                <Text style={styles.statValue} numberOfLines={2}>
+                  {selectedTrip.baggage?.split("·")[0]?.trim() || "Bagages"}
+                </Text>
+                <Text style={styles.statCaption}>
+                  {selectedTrip.baggage?.split("·")[1]?.trim() || "inclus"}
+                </Text>
+              </View>
+            </View>
+
+            <Text style={styles.sectionLabel}>Compagnie</Text>
+            <View style={styles.infoCard}>
+              <View style={styles.infoRow}>
+                <Image
+                  source={{ uri: selectedTrip.company.logo }}
+                  style={styles.infoLogo}
+                />
+                <View style={styles.infoTextCol}>
+                  <Text style={styles.infoTitle}>{selectedTrip.company.name}</Text>
+                  <Text style={styles.infoSub}>{selectedTrip.busType}</Text>
+                </View>
+              </View>
+              <View style={[styles.infoRow, styles.infoRowBorder]}>
+                <Star size={16} color={COLORS.warning} fill={COLORS.warning} />
+                <View style={styles.infoTextCol}>
+                  <Text style={styles.infoTitle}>
+                    {selectedTrip.company.rating} · {selectedTrip.company.totalReviews} avis
+                  </Text>
+                  <Text style={styles.infoSub}>Note des voyageurs</Text>
+                </View>
+              </View>
+              {date ? (
+                <View style={[styles.infoRow, styles.infoRowBorder]}>
+                  <Calendar size={16} color={COLORS.primary} />
+                  <View style={styles.infoTextCol}>
+                    <Text style={styles.infoTitle}>Date du trajet</Text>
+                    <Text style={[styles.infoSub, styles.infoSubCapitalize]}>
+                      {new Date(date).toLocaleDateString("fr-FR", {
+                        weekday: "long",
+                        day: "numeric",
+                        month: "long",
+                      })}
+                    </Text>
+                  </View>
+                </View>
+              ) : null}
+            </View>
+
+            <Text style={styles.sectionLabel}>Véhicule & places</Text>
+            <View style={styles.infoCard}>
+              <View style={styles.infoRow}>
+                <Bus size={16} color={COLORS.primary} />
+                <View style={styles.infoTextCol}>
+                  <Text style={styles.infoTitle}>{selectedTrip.vehicle || selectedTrip.busType}</Text>
+                  <Text style={styles.infoSub}>
+                    {[selectedTrip.plate, selectedTrip.seatLayout].filter(Boolean).join(" · ")}
+                  </Text>
+                </View>
+              </View>
+              {selectedTrip.company?.phone ? (
+                <View style={[styles.infoRow, styles.infoRowBorder]}>
+                  <Phone size={16} color={COLORS.primary} />
+                  <View style={styles.infoTextCol}>
+                    <Text style={styles.infoTitle}>Contact compagnie</Text>
+                    <Text style={styles.infoSub}>{selectedTrip.company.phone}</Text>
+                  </View>
+                </View>
+              ) : null}
+            </View>
+
+            <Text style={styles.sectionLabel}>Itinéraire</Text>
+            <View style={styles.infoCard}>
+              <View style={styles.infoRow}>
+                <Route size={16} color={COLORS.primary} />
+                <View style={styles.infoTextCol}>
+                  <Text style={styles.infoTitle}>
+                    {selectedTrip.stops?.length
+                      ? `${selectedTrip.stops.length} arrêt(s) intermédiaire(s)`
+                      : "Trajet direct"}
+                  </Text>
+                  <Text style={styles.infoSub}>
+                    {selectedTrip.stops?.length
+                      ? selectedTrip.stops.join(" → ")
+                      : "Sans arrêt commercial"}
+                  </Text>
+                </View>
+              </View>
+            </View>
+
+            {selectedTrip.amenities?.length ? (
+              <>
+                <Text style={styles.sectionLabel}>À bord</Text>
+                <View style={styles.amenitiesContainer}>
+                  {renderAmenities(selectedTrip.amenities)}
+                </View>
+              </>
+            ) : null}
+
+            <Text style={styles.sectionLabel}>Conditions</Text>
+            <View style={styles.infoCard}>
+              <View style={styles.infoRow}>
+                <Shield size={16} color={selectedTrip.refundable ? COLORS.success : COLORS.warning} />
+                <View style={styles.infoTextCol}>
+                  <Text style={styles.infoTitle}>
+                    {selectedTrip.refundable ? "Remboursable" : "Non remboursable"}
+                  </Text>
+                  <Text style={styles.infoSub}>{selectedTrip.cancellation}</Text>
+                </View>
+              </View>
+              {selectedTrip.note ? (
+                <View style={[styles.infoRow, styles.infoRowBorder]}>
+                  <Info size={16} color={COLORS.primary} />
+                  <View style={styles.infoTextCol}>
+                    <Text style={styles.infoTitle}>Bon à savoir</Text>
+                    <Text style={styles.infoSub}>{selectedTrip.note}</Text>
+                  </View>
+                </View>
+              ) : null}
+            </View>
+
+            <View style={styles.detailCtaBar}>
+              <View>
+                <Text style={styles.priceLabel}>Prix par place</Text>
+                <Text style={styles.detailPrice}>{formatPrice(selectedTrip.price)}</Text>
+              </View>
+              <PulsingSelectButton onPress={handleConfirmSelect}>
+                <Text style={styles.selectButtonText}>Sélectionner</Text>
+                <ChevronRight size={16} color={COLORS.white} />
+              </PulsingSelectButton>
+            </View>
+          </BottomSheetScrollView>
+        ) : (
+          <View style={styles.detailSheet} />
+        )}
+      </BottomSheet>
+
       <BottomSheet
         ref={filterSheetRef}
         index={-1}
@@ -587,141 +981,6 @@ export default function ListeTrajets() {
         </BottomSheetView>
       </BottomSheet>
 
-      {/* Modal Formulaire Passager */}
-      <Modal
-        visible={showPassengerForm}
-        animationType="slide"
-        transparent={false}
-        onRequestClose={closePassengerModal}
-      >
-        <View style={styles.modalContainer}>
-          <View style={styles.modalHeader}>
-            <TouchableOpacity onPress={closePassengerModal}>
-              <ArrowLeft size={24} color={COLORS.text} />
-            </TouchableOpacity>
-            <Text style={styles.modalTitle}>Passagers</Text>
-            <View style={{ width: 24 }} />
-          </View>
-
-          <ScrollView style={styles.modalContent}>
-            {selectedTrip && (
-              <>
-                {/* Résumé du trajet */}
-                <View style={styles.tripSummary}>
-                  <Text style={styles.summaryTitle}>Résumé du trajet</Text>
-                  <View style={styles.summaryRoute}>
-                    <Text style={styles.summaryCities}>
-                      {selectedTrip.departure.city} → {selectedTrip.arrival.city}
-                    </Text>
-                    <Text style={styles.summaryDate}>
-                      {date ? new Date(date).toLocaleDateString("fr-FR", {
-                        day: "numeric",
-                        month: "long",
-                      }) : "Date"}
-                    </Text>
-                  </View>
-                  <View style={styles.summarySchedule}>
-                    <Clock size={14} color={COLORS.muted} />
-                    <Text style={styles.summaryTime}>
-                      Départ {selectedTrip.departure.time} - Arrivée {selectedTrip.arrival.time}
-                    </Text>
-                  </View>
-                  <View style={styles.summaryCompany}>
-                    <Image source={{ uri: selectedTrip.company.logo }} style={styles.summaryLogo} />
-                    <Text style={styles.summaryCompanyName}>{selectedTrip.company.name}</Text>
-                  </View>
-                  <View style={styles.summaryPrice}>
-                    <Text style={styles.summaryPriceLabel}>
-                      {passagersList.length > 0
-                        ? `Prix total (${passagersList.length} passager${passagersList.length > 1 ? "s" : ""})`
-                        : "Prix par place"}
-                    </Text>
-                    <Text style={styles.summaryPriceValue}>
-                      {formatPrice(
-                        selectedTrip.price * Math.max(1, passagersList.length || 1),
-                      )}
-                    </Text>
-                  </View>
-                </View>
-
-                <View style={styles.formSection}>
-                  <Text style={styles.formTitle}>Ajouter un passager</Text>
-
-                  <View style={styles.inputGroup}>
-                    <Text style={styles.inputLabel}>Nom *</Text>
-                    <View style={styles.inputWrapper}>
-                      <User size={18} color={COLORS.muted} />
-                      <TextInput
-                        style={styles.input}
-                        placeholder="Nom de famille"
-                        placeholderTextColor={COLORS.muted}
-                        value={draftNom}
-                        onChangeText={setDraftNom}
-                        autoCapitalize="characters"
-                      />
-                    </View>
-                  </View>
-
-                  <View style={styles.inputGroup}>
-                    <Text style={styles.inputLabel}>Prénom *</Text>
-                    <View style={styles.inputWrapper}>
-                      <User size={18} color={COLORS.muted} />
-                      <TextInput
-                        style={styles.input}
-                        placeholder="Prénom"
-                        placeholderTextColor={COLORS.muted}
-                        value={draftPrenom}
-                        onChangeText={setDraftPrenom}
-                        autoCapitalize="words"
-                      />
-                    </View>
-                  </View>
-
-                  <TouchableOpacity style={styles.addPassagerBtn} onPress={handleAddPassager}>
-                    <UserPlus size={20} color={COLORS.white} />
-                    <Text style={styles.addPassagerBtnText}>Ajouter</Text>
-                  </TouchableOpacity>
-
-                  {passagersList.length > 0 ? (
-                    <View style={styles.passagersListe}>
-                      <Text style={styles.passagersListeTitle}>Passagers ({passagersList.length})</Text>
-                      {passagersList.map((p) => (
-                        <View key={p.key} style={styles.passagerRow}>
-                          <Text style={styles.passagerRowText}>
-                            {p.prenom} {p.nom}
-                          </Text>
-                          <TouchableOpacity
-                            onPress={() => handleRemovePassager(p.key)}
-                            hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-                          >
-                            <Trash2 size={18} color={COLORS.error} />
-                          </TouchableOpacity>
-                        </View>
-                      ))}
-                    </View>
-                  ) : (
-                    <Text style={styles.passagersHint}>
-                      Ajoutez chaque voyageur avec le bouton « Ajouter ».
-                    </Text>
-                  )}
-                </View>
-
-                <TouchableOpacity
-                  style={[styles.confirmButton, submittingReservation && styles.confirmButtonDisabled]}
-                  onPress={handlePassengerSubmit}
-                  disabled={submittingReservation}
-                >
-                  {submittingReservation ? (
-                    <ActivityIndicator color={COLORS.white} />
-                  ) : (
-                    <Text style={styles.confirmButtonText}>Confirmer la réservation</Text>
-                  )}
-                </TouchableOpacity>
-              </>
-            )}
-          </ScrollView>
-        </View>
-      </Modal>
     </View>
   );
 }
@@ -731,55 +990,183 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: COLORS.bgSoft,
   },
-  searchHeader: {
+  header: {
+    backgroundColor: COLORS.white,
+    paddingHorizontal: 16,
+    paddingTop: 10,
+    paddingBottom: 14,
+    borderBottomLeftRadius: 22,
+    borderBottomRightRadius: 22,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: COLORS.borderLight,
+    shadowColor: COLORS.primary,
+    shadowOffset: { width: 0, height: 6 },
+    shadowOpacity: 0.06,
+    shadowRadius: 12,
+    elevation: 3,
+  },
+  headerTop: {
     flexDirection: "row",
     alignItems: "center",
-    paddingHorizontal: 16,
-    paddingVertical: 12,
-    backgroundColor: COLORS.white,
-    borderBottomWidth: 1,
-    borderBottomColor: COLORS.border,
+    marginBottom: 14,
   },
   backButton: {
-    padding: 4,
+    width: 40,
+    height: 40,
+    borderRadius: 12,
+    backgroundColor: COLORS.bgSoft,
+    alignItems: "center",
+    justifyContent: "center",
   },
-  searchInfo: {
+  headerTitleBlock: {
     flex: 1,
-    marginLeft: 12,
+    marginHorizontal: 12,
   },
-  routeInfo: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 6,
+  headerTitle: {
+    fontSize: 17,
+    fontWeight: "800",
+    color: COLORS.textStrong,
+    letterSpacing: -0.2,
   },
-  routeText: {
-    fontSize: 14,
-    fontWeight: "600",
-    color: COLORS.text,
-  },
-  dateInfo: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 6,
-    marginTop: 4,
-  },
-  dateText: {
+  headerSubtitle: {
     fontSize: 12,
     color: COLORS.muted,
+    marginTop: 2,
+    fontWeight: "500",
   },
   filterButton: {
-    padding: 8,
+    width: 40,
+    height: 40,
+    borderRadius: 12,
+    backgroundColor: COLORS.primarySoft,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  filterButtonActive: {
+    backgroundColor: COLORS.primary,
+  },
+  routeCard: {
     backgroundColor: COLORS.bgSoft,
-    borderRadius: 8,
+    borderRadius: 16,
+    padding: 14,
+    marginBottom: 12,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: COLORS.borderLight,
+  },
+  routeCities: {
+    flexDirection: "row",
+    alignItems: "center",
+    marginBottom: 12,
+  },
+  routeCityCol: {
+    flex: 1,
+  },
+  routeCityColEnd: {
+    alignItems: "flex-end",
+  },
+  routeCityLabel: {
+    fontSize: 10,
+    fontWeight: "700",
+    color: COLORS.muted,
+    letterSpacing: 0.5,
+    textTransform: "uppercase",
+    marginBottom: 3,
+  },
+  routeCityName: {
+    fontSize: 15,
+    fontWeight: "800",
+    color: COLORS.textStrong,
+  },
+  routeArrow: {
+    flexDirection: "row",
+    alignItems: "center",
+    paddingHorizontal: 8,
+    flex: 1.1,
+  },
+  routeDot: {
+    width: 6,
+    height: 6,
+    borderRadius: 3,
+    backgroundColor: COLORS.primary,
+  },
+  routeDotEnd: {
+    backgroundColor: COLORS.mutedStrong,
+  },
+  routeDash: {
+    flex: 1,
+    height: StyleSheet.hairlineWidth,
+    backgroundColor: COLORS.border,
+  },
+  routeMeta: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 8,
+  },
+  routeMetaChip: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    backgroundColor: COLORS.white,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 10,
+    maxWidth: "100%",
+  },
+  routeMetaText: {
+    fontSize: 12,
+    fontWeight: "600",
+    color: COLORS.text,
+    textTransform: "capitalize",
+    flexShrink: 1,
+  },
+  searchBar: {
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: COLORS.bgSoft,
+    borderRadius: 14,
+    paddingHorizontal: 12,
+    height: 46,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: COLORS.borderLight,
+    gap: 8,
+  },
+  searchInput: {
+    flex: 1,
+    fontSize: 14,
+    color: COLORS.text,
+    paddingVertical: 0,
+    fontWeight: "500",
+  },
+  searchClear: {
+    width: 26,
+    height: 26,
+    borderRadius: 13,
+    backgroundColor: COLORS.borderLight,
+    alignItems: "center",
+    justifyContent: "center",
   },
   tripsList: {
     flex: 1,
+  },
+  tripsListContent: {
     padding: 16,
+    paddingBottom: 28,
+  },
+  listHeaderRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    marginBottom: 12,
   },
   resultsCount: {
     fontSize: 13,
     color: COLORS.muted,
-    marginBottom: 12,
+    fontWeight: "600",
+  },
+  clearFilterLink: {
+    fontSize: 12,
+    color: COLORS.primary,
+    fontWeight: "700",
   },
   loadingBlock: {
     paddingVertical: 48,
@@ -804,180 +1191,387 @@ const styles = StyleSheet.create({
   },
   tripCard: {
     backgroundColor: COLORS.white,
-    borderRadius: 16,
-    padding: 16,
+    borderRadius: 18,
+    padding: 14,
     marginBottom: 12,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: COLORS.borderLight,
+    shadowColor: COLORS.primary,
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.06,
+    shadowRadius: 10,
     elevation: 2,
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.05,
-    shadowRadius: 2,
   },
-  companyHeader: {
+  cardTop: {
     flexDirection: "row",
-    marginBottom: 12,
+    alignItems: "center",
+    marginBottom: 14,
   },
   companyLogo: {
-    width: 48,
-    height: 48,
+    width: 42,
+    height: 42,
     borderRadius: 12,
     backgroundColor: COLORS.bgSoft,
   },
-  companyInfo: {
+  cardTopInfo: {
     flex: 1,
-    marginLeft: 12,
-  },
-  companyNameRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 8,
+    marginLeft: 10,
+    marginRight: 8,
   },
   companyName: {
     fontSize: 14,
-    fontWeight: "600",
+    fontWeight: "700",
     color: COLORS.text,
+    marginBottom: 3,
   },
-  premiumBadge: {
+  cardMetaRow: {
     flexDirection: "row",
     alignItems: "center",
-    backgroundColor: COLORS.primary + "15",
-    paddingHorizontal: 6,
-    paddingVertical: 2,
-    borderRadius: 12,
-    gap: 4,
-  },
-  premiumText: {
-    fontSize: 10,
-    color: COLORS.primary,
-    fontWeight: "600",
-  },
-  ratingRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 4,
-    marginTop: 4,
-  },
-  starsContainer: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 2,
+    gap: 5,
+    flexWrap: "wrap",
   },
   ratingText: {
     fontSize: 11,
     fontWeight: "600",
-    color: COLORS.text,
+    color: COLORS.textLight,
   },
-  reviewsCount: {
-    fontSize: 10,
-    color: COLORS.muted,
-  },
-  scheduleContainer: {
+  premiumBadge: {
     flexDirection: "row",
     alignItems: "center",
-    justifyContent: "space-between",
-    marginBottom: 12,
-    paddingVertical: 8,
+    backgroundColor: COLORS.primarySoft,
+    paddingHorizontal: 7,
+    paddingVertical: 2,
+    borderRadius: 8,
+    gap: 3,
   },
-  timePoint: {
-    flex: 1,
+  premiumText: {
+    fontSize: 10,
+    color: COLORS.primary,
+    fontWeight: "700",
+  },
+  busTypeChip: {
+    fontSize: 10,
+    color: COLORS.muted,
+    fontWeight: "600",
+  },
+  priceBlock: {
+    alignItems: "flex-end",
+  },
+  price: {
+    fontSize: 15,
+    fontWeight: "800",
+    color: COLORS.primary,
+  },
+  priceHint: {
+    fontSize: 10,
+    color: COLORS.muted,
+    marginTop: 1,
+  },
+  scheduleRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    marginBottom: 12,
+  },
+  timeCol: {
+    minWidth: 58,
+  },
+  timeColEnd: {
+    alignItems: "flex-end",
   },
   time: {
-    fontSize: 16,
-    fontWeight: "bold",
-    color: COLORS.text,
+    fontSize: 18,
+    fontWeight: "800",
+    color: COLORS.textStrong,
+    letterSpacing: -0.3,
   },
-  location: {
+  cityMini: {
     fontSize: 11,
     color: COLORS.muted,
     marginTop: 2,
+    maxWidth: 72,
   },
-  durationContainer: {
+  durationMid: {
+    flex: 1,
     flexDirection: "row",
     alignItems: "center",
-    gap: 8,
-    flex: 2,
-    paddingHorizontal: 12,
+    paddingHorizontal: 8,
   },
-  line: {
+  dot: {
+    width: 6,
+    height: 6,
+    borderRadius: 3,
+    backgroundColor: COLORS.primary,
+  },
+  dotEnd: {
+    backgroundColor: COLORS.mutedStrong,
+  },
+  dash: {
     flex: 1,
-    height: 1,
+    height: StyleSheet.hairlineWidth,
     backgroundColor: COLORS.border,
   },
   duration: {
     fontSize: 11,
     color: COLORS.muted,
+    fontWeight: "600",
+    marginHorizontal: 6,
   },
-  busInfo: {
+  cardFooter: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 6,
-    marginBottom: 8,
+    justifyContent: "space-between",
+    paddingTop: 10,
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderTopColor: COLORS.borderLight,
   },
-  busType: {
-    fontSize: 12,
-    color: COLORS.text,
-    fontWeight: "500",
-  },
-  separator: {
-    width: 4,
-    height: 4,
-    borderRadius: 2,
-    backgroundColor: COLORS.muted,
-  },
-  seats: {
+  seatsHint: {
     fontSize: 12,
     color: COLORS.muted,
+    fontWeight: "500",
   },
   amenitiesContainer: {
     flexDirection: "row",
     flexWrap: "wrap",
-    gap: 6,
-    marginBottom: 12,
+    gap: 8,
+    marginBottom: 18,
   },
   amenityTag: {
-    backgroundColor: COLORS.bgSoft,
-    paddingHorizontal: 8,
-    paddingVertical: 4,
+    backgroundColor: COLORS.primarySoft,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
     borderRadius: 12,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: COLORS.borderLight,
   },
   amenityText: {
-    fontSize: 10,
-    color: COLORS.muted,
-  },
-  footer: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "center",
-    paddingTop: 12,
-    borderTopWidth: 1,
-    borderTopColor: COLORS.border,
+    fontSize: 12,
+    color: COLORS.text,
+    fontWeight: "600",
   },
   priceLabel: {
     fontSize: 11,
     color: COLORS.muted,
-  },
-  price: {
-    fontSize: 18,
-    fontWeight: "bold",
-    color: COLORS.primary,
+    fontWeight: "500",
   },
   selectButton: {
     flexDirection: "row",
     alignItems: "center",
     backgroundColor: COLORS.primary,
-    paddingHorizontal: 16,
-    paddingVertical: 8,
-    borderRadius: 20,
+    paddingHorizontal: 20,
+    paddingVertical: 14,
+    borderRadius: 14,
     gap: 4,
   },
   selectButtonText: {
     color: COLORS.white,
-    fontWeight: "600",
+    fontWeight: "700",
+    fontSize: 14,
+  },
+  sheetHandle: {
+    backgroundColor: COLORS.borderStrong,
+    width: 42,
+  },
+  detailSheet: {
+    paddingHorizontal: 20,
+    paddingBottom: 36,
+  },
+  detailHero: {
+    marginBottom: 18,
+    paddingBottom: 16,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: COLORS.borderLight,
+  },
+  detailTitleRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    marginBottom: 0,
+  },
+  detailEyebrow: {
     fontSize: 13,
+    fontWeight: "800",
+    color: COLORS.textStrong,
+    letterSpacing: -0.2,
+  },
+  infoLogo: {
+    width: 32,
+    height: 32,
+    borderRadius: 8,
+    backgroundColor: COLORS.bg,
+  },
+  infoSubCapitalize: {
+    textTransform: "capitalize",
+  },
+  detailSchedule: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    backgroundColor: COLORS.white,
+    borderRadius: 18,
+    padding: 16,
+    marginBottom: 14,
+    borderWidth: 1,
+    borderColor: COLORS.borderLight,
+  },
+  detailTimeBlock: {
+    flex: 1,
+  },
+  detailPointLabel: {
+    fontSize: 10,
+    fontWeight: "700",
+    color: COLORS.muted,
+    letterSpacing: 0.6,
+    textTransform: "uppercase",
+    marginBottom: 4,
+  },
+  detailTime: {
+    fontSize: 24,
+    fontWeight: "800",
+    color: COLORS.textStrong,
+    letterSpacing: -0.4,
+  },
+  detailCity: {
+    fontSize: 14,
+    fontWeight: "700",
+    color: COLORS.text,
+    marginTop: 4,
+  },
+  locRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+    marginTop: 4,
+  },
+  locRowEnd: {
+    justifyContent: "flex-end",
+  },
+  detailLoc: {
+    fontSize: 11,
+    color: COLORS.muted,
+    flexShrink: 1,
+  },
+  detailDurationCol: {
+    alignItems: "center",
+    paddingHorizontal: 6,
+    paddingTop: 8,
+    minWidth: 72,
+  },
+  durationRing: {
+    width: 34,
+    height: 34,
+    borderRadius: 17,
+    backgroundColor: COLORS.primarySoft,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  durationLine: {
+    width: 2,
+    height: 18,
+    backgroundColor: COLORS.borderLight,
+    marginVertical: 4,
+    borderRadius: 1,
+  },
+  detailDuration: {
+    fontSize: 12,
+    fontWeight: "800",
+    color: COLORS.primary,
+  },
+  detailBusType: {
+    fontSize: 10,
+    color: COLORS.muted,
+    fontWeight: "700",
+    marginTop: 2,
+  },
+  detailDistance: {
+    fontSize: 10,
+    color: COLORS.mutedStrong,
+    marginTop: 2,
+  },
+  detailStats: {
+    flexDirection: "row",
+    gap: 8,
+    marginBottom: 18,
+  },
+  statCard: {
+    flex: 1,
+    backgroundColor: COLORS.white,
+    borderRadius: 14,
+    paddingVertical: 12,
+    paddingHorizontal: 8,
+    alignItems: "center",
+    borderWidth: 1,
+    borderColor: COLORS.borderLight,
+    gap: 4,
+  },
+  statValue: {
+    fontSize: 12,
+    fontWeight: "800",
+    color: COLORS.textStrong,
+    textAlign: "center",
+  },
+  statCaption: {
+    fontSize: 10,
+    color: COLORS.muted,
+    textAlign: "center",
+  },
+  sectionLabel: {
+    fontSize: 12,
+    fontWeight: "800",
+    color: COLORS.textLight,
+    letterSpacing: 0.5,
+    textTransform: "uppercase",
+    marginBottom: 8,
+  },
+  infoCard: {
+    backgroundColor: COLORS.white,
+    borderRadius: 16,
+    paddingHorizontal: 14,
+    marginBottom: 16,
+    borderWidth: 1,
+    borderColor: COLORS.borderLight,
+  },
+  infoRow: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    gap: 12,
+    paddingVertical: 14,
+  },
+  infoRowBorder: {
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderTopColor: COLORS.borderLight,
+  },
+  infoTextCol: {
+    flex: 1,
+  },
+  infoTitle: {
+    fontSize: 13,
+    fontWeight: "700",
+    color: COLORS.textStrong,
+    marginBottom: 3,
+  },
+  infoSub: {
+    fontSize: 12,
+    color: COLORS.muted,
+    lineHeight: 17,
+  },
+  detailCtaBar: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    marginTop: 4,
+    paddingTop: 16,
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderTopColor: COLORS.borderLight,
+  },
+  detailPrice: {
+    fontSize: 22,
+    fontWeight: "800",
+    color: COLORS.primary,
+    marginTop: 2,
   },
   bottomSheetBackground: {
-    borderTopLeftRadius: 20,
-    borderTopRightRadius: 20,
+    borderTopLeftRadius: 24,
+    borderTopRightRadius: 24,
+    backgroundColor: COLORS.white,
   },
   filterSheetContent: {
     flex: 1,
@@ -1042,225 +1636,5 @@ const styles = StyleSheet.create({
     fontWeight: "600",
     fontSize: 16,
   },
-  modalContainer: {
-    flex: 1,
-    backgroundColor: COLORS.bgSoft,
-  },
-  modalHeader: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "center",
-    paddingHorizontal: 16,
-    paddingTop: 50,
-    paddingBottom: 16,
-    backgroundColor: COLORS.white,
-    borderBottomWidth: 1,
-    borderBottomColor: COLORS.border,
-  },
-  modalTitle: {
-    fontSize: 18,
-    fontWeight: "600",
-    color: COLORS.text,
-  },
-  modalContent: {
-    flex: 1,
-    padding: 16,
-  },
-  tripSummary: {
-    backgroundColor: COLORS.white,
-    borderRadius: 16,
-    padding: 16,
-    marginBottom: 20,
-  },
-  summaryTitle: {
-    fontSize: 14,
-    fontWeight: "600",
-    color: COLORS.text,
-    marginBottom: 12,
-  },
-  summaryRoute: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "center",
-    marginBottom: 8,
-  },
-  summaryCities: {
-    fontSize: 16,
-    fontWeight: "bold",
-    color: COLORS.text,
-  },
-  summaryDate: {
-    fontSize: 12,
-    color: COLORS.muted,
-  },
-  summarySchedule: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 6,
-    marginBottom: 8,
-  },
-  summaryTime: {
-    fontSize: 13,
-    color: COLORS.muted,
-  },
-  summaryCompany: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 8,
-    marginBottom: 12,
-  },
-  summaryLogo: {
-    width: 24,
-    height: 24,
-    borderRadius: 12,
-  },
-  summaryCompanyName: {
-    fontSize: 13,
-    color: COLORS.text,
-  },
-  summaryPrice: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "center",
-    paddingTop: 12,
-    borderTopWidth: 1,
-    borderTopColor: COLORS.border,
-  },
-  summaryPriceLabel: {
-    fontSize: 13,
-    color: COLORS.muted,
-  },
-  summaryPriceValue: {
-    fontSize: 18,
-    fontWeight: "bold",
-    color: COLORS.primary,
-  },
-  formSection: {
-    backgroundColor: COLORS.white,
-    borderRadius: 16,
-    padding: 16,
-    marginBottom: 20,
-  },
-  formTitle: {
-    fontSize: 14,
-    fontWeight: "600",
-    color: COLORS.text,
-    marginBottom: 16,
-  },
-  inputGroup: {
-    marginBottom: 16,
-  },
-  inputLabel: {
-    fontSize: 13,
-    color: COLORS.text,
-    marginBottom: 6,
-  },
-  inputWrapper: {
-    flexDirection: "row",
-    alignItems: "center",
-    borderWidth: 1,
-    borderColor: COLORS.border,
-    borderRadius: 12,
-    paddingHorizontal: 12,
-    backgroundColor: COLORS.white,
-  },
-  input: {
-    flex: 1,
-    paddingVertical: 12,
-    paddingHorizontal: 8,
-    fontSize: 14,
-    color: COLORS.text,
-  },
-  addPassagerBtn: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "center",
-    gap: 8,
-    backgroundColor: COLORS.secondary,
-    paddingVertical: 14,
-    borderRadius: 12,
-    marginBottom: 16,
-  },
-  addPassagerBtnText: {
-    color: COLORS.white,
-    fontWeight: "700",
-    fontSize: 15,
-  },
-  passagersListe: {
-    marginTop: 4,
-  },
-  passagersListeTitle: {
-    fontSize: 13,
-    fontWeight: "600",
-    color: COLORS.text,
-    marginBottom: 10,
-  },
-  passagerRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-    paddingVertical: 10,
-    paddingHorizontal: 12,
-    backgroundColor: COLORS.bgSoft,
-    borderRadius: 10,
-    marginBottom: 8,
-  },
-  passagerRowText: {
-    fontSize: 14,
-    color: COLORS.text,
-    flex: 1,
-  },
-  passagersHint: {
-    fontSize: 13,
-    color: COLORS.muted,
-    marginTop: 4,
-  },
-  paymentSection: {
-    backgroundColor: COLORS.white,
-    borderRadius: 16,
-    padding: 16,
-    marginBottom: 20,
-  },
-  paymentOptions: {
-    flexDirection: "row",
-    gap: 12,
-  },
-  paymentOption: {
-    flex: 1,
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "center",
-    gap: 8,
-    paddingVertical: 12,
-    borderWidth: 1,
-    borderColor: COLORS.border,
-    borderRadius: 12,
-  },
-  paymentOptionText: {
-    fontSize: 13,
-    color: COLORS.text,
-  },
-  waveIcon: {
-    width: 20,
-    height: 20,
-  },
-  orangeIcon: {
-    width: 20,
-    height: 20,
-  },
-  confirmButton: {
-    backgroundColor: COLORS.primary,
-    paddingVertical: 16,
-    borderRadius: 12,
-    alignItems: "center",
-    marginBottom: 30,
-  },
-  confirmButtonDisabled: {
-    opacity: 0.7,
-  },
-  confirmButtonText: {
-    color: COLORS.white,
-    fontWeight: "bold",
-    fontSize: 16,
-  },
 });
+

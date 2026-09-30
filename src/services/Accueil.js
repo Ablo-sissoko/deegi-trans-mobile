@@ -3,10 +3,11 @@ import {
   StyleSheet,
   Text,
   View,
-  TextInput,
   TouchableOpacity,
   ScrollView,
   Image,
+  Animated,
+  Easing,
 } from "react-native";
 import { MapPin, Calendar, ArrowRightLeft, ArrowRight } from "lucide-react-native";
 import Header from "../components/Header";
@@ -36,6 +37,39 @@ LocaleConfig.locales["fr"] = {
 };
 
 LocaleConfig.defaultLocale = "fr";
+
+const GOLD = "#D4AF37";
+
+function ZoomMapPin({ size = 18 }) {
+  const scale = useRef(new Animated.Value(1)).current;
+
+  useEffect(() => {
+    const animation = Animated.loop(
+      Animated.sequence([
+        Animated.timing(scale, {
+          toValue: 1.22,
+          duration: 650,
+          easing: Easing.inOut(Easing.ease),
+          useNativeDriver: true,
+        }),
+        Animated.timing(scale, {
+          toValue: 1,
+          duration: 650,
+          easing: Easing.inOut(Easing.ease),
+          useNativeDriver: true,
+        }),
+      ]),
+    );
+    animation.start();
+    return () => animation.stop();
+  }, [scale]);
+
+  return (
+    <Animated.View style={{ transform: [{ scale }] }}>
+      <MapPin size={size} color={GOLD} />
+    </Animated.View>
+  );
+}
 
 export default function Accueil() {
   const navigation = useNavigation();
@@ -94,16 +128,54 @@ export default function Accueil() {
   const [popularRoutes, setPopularRoutes] = useState([]);
   const [popularLoading, setPopularLoading] = useState(true);
 
-  useEffect(() => {
+  useEffect(() => {  
     let cancelled = false;
+    const normalizePopular = (rows) =>
+      (Array.isArray(rows) ? rows : []).map((r, index) => ({
+        ...r,
+        id: r?.id ?? `route-${r?.from || r?.departureId || index}-${r?.to || r?.arrivalId || index}`,
+        from: r?.from || r?.villeDepart?.nom || "Départ",
+        to: r?.to || r?.villeArrivee?.nom || "Arrivée",
+        price:
+          typeof r?.price === "number"
+            ? `${Number(r.price).toLocaleString("fr-FR")} FCFA`
+            : r?.price ?? (r?.prix != null ? `${Number(r.prix).toLocaleString("fr-FR")} FCFA` : "—"),
+        image:
+          r?.image ||
+          "https://images.unsplash.com/photo-1544620347-c4fd4a3d5957?w=400&q=80",
+      }));
+
     (async () => {
       try {
         const params = { limit: 8 };
         if (user?.id != null) params.user_id = user.id;
-        const { data } = await authClient.get("/api/routes/popular", { params });
-        if (!cancelled && Array.isArray(data)) setPopularRoutes(data);
-      } catch {
-        if (!cancelled) setPopularRoutes([]);
+        try {
+          const { data } = await authClient.get("/api/routes/popular", { params });
+          if (!cancelled && Array.isArray(data)) setPopularRoutes(normalizePopular(data));
+        } catch {
+          try {
+            const { data: modelesData } = await authClient.get("/api/trajet-modeles");
+            const modeles = Array.isArray(modelesData?.trajetModeles) ? modelesData.trajetModeles : [];
+            const fallback = modeles.slice(0, 8).map((m, index) => ({
+              id: m?.id ?? `modele-${index}`,
+              from: m?.villeDepart?.nom || "Départ",
+              to: m?.villeArrivee?.nom || "Arrivée",
+              departureId: m?.ville_depart_id,
+              arrivalId: m?.ville_arrivee_id,
+              ville_depart_id: m?.ville_depart_id,
+              ville_arrivee_id: m?.ville_arrivee_id,
+              price:
+                m?.prix != null
+                  ? `${Number(m.prix).toLocaleString("fr-FR")} FCFA`
+                  : "—",
+              image: "https://images.unsplash.com/photo-1544620347-c4fd4a3d5957?w=400&q=80",
+            }));
+            if (!cancelled && fallback.length) setPopularRoutes(fallback);
+            else if (!cancelled) setPopularRoutes([]);
+          } catch {
+            if (!cancelled) setPopularRoutes([]);
+          }
+        }
       } finally {
         if (!cancelled) setPopularLoading(false);
       }
@@ -198,8 +270,10 @@ export default function Accueil() {
 
         {/* bienvenue */}
         <View style={styles.welcomeContainer}>
-          <Text style={styles.welcomeText}>Bienvenue sur DeegiTrans </Text>
-          <Text style={styles.welcomeSubtext}> Famakan sissoko</Text>
+          <Text style={styles.welcomeText}>Bienvenue sur DeegiTrans</Text>
+          <Text style={styles.welcomeSubtext}>
+            {user?.prenom ? user.prenom : "Voyageur"}
+          </Text>
         </View>
 
 
@@ -254,7 +328,7 @@ export default function Accueil() {
                 onPress={() => openCitySearch("departure")}
                 activeOpacity={0.8}
               >
-                <MapPin size={18} color={COLORS.muted} />
+                <ZoomMapPin />
                 <Text
                   style={[
                     styles.textInput,
@@ -285,7 +359,7 @@ export default function Accueil() {
                 onPress={() => openCitySearch("destination")}
                 activeOpacity={0.8}
               >
-                <MapPin size={18} color={COLORS.muted} />
+                <ZoomMapPin />
                 <Text
                   style={[
                     styles.textInput,
@@ -378,15 +452,15 @@ export default function Accueil() {
             ) : popularRoutes.length === 0 ? (
               <Text style={{ color: COLORS.muted, paddingVertical: 24 }}>Aucune suggestion pour le moment.</Text>
             ) : (
-              popularRoutes.map((r) => (
+              popularRoutes.map((r, index) => (
                 <TouchableOpacity
-                  key={String(r.id)}
+                  key={String(r.id ?? `${r.from}-${r.to}-${index}`)}
                   style={styles.routeCard}
                   onPress={() => {
                     setDeparture(r.from);
                     setDestination(r.to);
-                    setDepartureId(r.ville_depart_id ?? null);
-                    setDestinationId(r.ville_arrivee_id ?? null);
+                    setDepartureId(r.ville_depart_id ?? r.departureId ?? null);
+                    setDestinationId(r.ville_arrivee_id ?? r.arrivalId ?? null);
                   }}
                 >
                   <Image source={{ uri: r.image }} style={styles.routeImage} />

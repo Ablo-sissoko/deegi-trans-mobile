@@ -1,4 +1,4 @@
-import React, { useState, useRef, useCallback } from "react";
+import React, { useState, useRef, useCallback, useMemo } from "react";
 import {
   View,
   Text,
@@ -28,22 +28,8 @@ import {
 import { authClient } from "../api/auth";
 import COLORS from "../utils/COLORS";
 import { resolveApiMediaUrl } from "../utils/mediaUrl";
-
-/** Aligné avec `deegipayResponse.js` côté backend (`gateway_success` + formes historiques). */
-function isDeegipaySuccess(body) {
-  if (!body || typeof body !== "object") return false;
-  if (body.gateway_success === true) return true;
-  if (body.status === 1 || body.status === "1") return true;
-  if (body.success === true || body.succes === true) return true;
-  const code = body.code;
-  if (code === 200 || code === "200" || code === 0 || code === "0") return true;
-  const nested = body.resultat ?? body.data ?? body.result;
-  if (nested && typeof nested === "object") {
-    if (nested.status === 1 || nested.status === "1") return true;
-    if (nested.success === true || nested.succes === true) return true;
-  }
-  return false;
-}
+import { formatPhoneForDeegipay } from "../utils/deegipayPhone";
+import { isDeegipayGatewaySuccess } from "../utils/deegipayResponse";
 
 const ORANGE_MONEY = "orangemoney";
 
@@ -127,7 +113,14 @@ export default function PaymentScreen() {
     selectedDate,
     companyName,
     companyLogo,
+    trajetId: trajetIdParam,
   } = route.params || {};
+
+  const trajetIdResolved = useMemo(() => {
+    const raw = trajetIdParam ?? selectedTrajet?.id;
+    const n = Number(raw);
+    return Number.isFinite(n) && n > 0 ? n : null;
+  }, [trajetIdParam, selectedTrajet?.id]);
 
   const [loadingInit, setLoadingInit] = useState(false);
   const [loadingPay, setLoadingPay] = useState(false);
@@ -142,6 +135,7 @@ export default function PaymentScreen() {
 
   const openOtp = useCallback(() => otpModalRef.current?.open(), []);
   const closeOtp = useCallback(() => otpModalRef.current?.close(), []);
+  const paymentStartLockRef = useRef(false);
 
   const estimatedTotal = (() => {
     const unit = Number(
@@ -163,7 +157,7 @@ export default function PaymentScreen() {
         lang: "fr",
       });
 
-      if (!isDeegipaySuccess(body)) {
+      if (!isDeegipayGatewaySuccess(body)) {
         throw new Error(body?.message || "Passerelle DeegiPay indisponible");
       }
 
@@ -173,6 +167,7 @@ export default function PaymentScreen() {
         optErr?.response?.data?.message ||
         optErr?.message ||
         "Impossible de joindre la passerelle (vérifiez la configuration serveur DeegiPay)";
+      console.warn("[Payment DeegiPay option]", optErr?.response?.status, msg);
       Toast.show({
         type: "error",
         text1: "Paiement",
@@ -183,26 +178,44 @@ export default function PaymentScreen() {
 
   /** Étape 1 — crée la transaction côté serveur (montant calculé serveur, pas de billet avant paiement). */
   const handleStartPayment = async () => {
-    if (!selectedTrajet?.id || !passengers?.length) {
-      Alert.alert("Erreur", "Données de réservation manquantes.", [
+    if (paymentStartLockRef.current || loadingInit || loadingOption) return;
+
+    if (!trajetIdResolved) {
+      Alert.alert("Erreur", "Identifiant de trajet manquant. Revenez à la réservation.", [
         { text: "Retour", onPress: () => navigation.goBack() },
       ]);
       return;
     }
 
+    const passagersNorm = Array.isArray(passengers)
+      ? passengers.map((p) => ({
+          nom: String(p?.nom ?? "").trim(),
+          prenom: String(p?.prenom ?? "").trim(),
+        }))
+      : [];
+    if (passagersNorm.length < 1 || passagersNorm.some((p) => !p.nom || !p.prenom)) {
+      Alert.alert(
+        "Passagers",
+        "Chaque passager doit avoir un nom et un prénom.",
+        [{ text: "OK", onPress: () => navigation.goBack() }]
+      );
+      return;
+    }
+
+    paymentStartLockRef.current = true;
     setLoadingInit(true);
     try {
-      const idempotencyKey = `pay-${selectedTrajet.id}-${Date.now()}-${Math.random()
+      const idempotencyKey = `pay-${trajetIdResolved}-${Date.now()}-${Math.random()
         .toString(36)
         .slice(2)}`;
 
       const { data } = await authClient.post(
         "/api/payments/booking/initiate",
         {
-          trajet_id: selectedTrajet.id,
-          passagers: passengers,
-          nombre_places: passengers.length,
-          type: tripType || "ALLER_SIMPLE",
+          trajet_id: trajetIdResolved,
+          passagers: passagersNorm,
+          nombre_places: passagersNorm.length,
+          type: String(tripType || "ALLER_SIMPLE"),
           gateway: ORANGE_MONEY,
           fundingSource: "external",
         },
@@ -212,8 +225,6 @@ export default function PaymentScreen() {
           },
         }
       );
-
-      
 
       const ref = data.reference_interne || data.transaction?.reference_interne;
       const m = data.montant ?? data.transaction?.montant;
@@ -230,7 +241,11 @@ export default function PaymentScreen() {
         setLoadingOption(false);
       }
     } catch (error) {
-      console.error(error);
+      console.warn(
+        "[Payment initiate]",
+        error?.response?.status,
+        error?.response?.data?.message || error?.message
+      );
       Toast.show({
         type: "error",
         text1: "Erreur",
@@ -238,6 +253,7 @@ export default function PaymentScreen() {
       });
     } finally {
       setLoadingInit(false);
+      paymentStartLockRef.current = false;
     }
   };
 
@@ -257,16 +273,26 @@ export default function PaymentScreen() {
     }
 
 
+    const phoneForGateway = formatPhoneForDeegipay(phone);
+    if (!phoneForGateway) {
+      Toast.show({
+        type: "error",
+        text1: "Téléphone",
+        text2: "Numéro invalide après formatage (indicatif retiré côté client).",
+      });
+      return;
+    }
+
     setLoadingPay(true);
     try {
       const dg = await authClient.post("/api/payments/booking/deegipay/finalize", {
         order: referenceInterne,
         reference_interne: referenceInterne,
-        phone: phone.trim(),
+        phone: phoneForGateway,
         otp: otp.trim(),
       });
 
-      const gatewayOk = isDeegipaySuccess(dg.data);
+      const gatewayOk = isDeegipayGatewaySuccess(dg.data);
 
       await authClient.post("/api/payments/booking/finalize", {
         reference_interne: referenceInterne,
@@ -289,16 +315,18 @@ export default function PaymentScreen() {
             {
               text: "Voir mes tickets",
               onPress: () =>
-                navigation.navigate("MainTabs", {
-                  screen: "Tickets",
+                navigation.navigate("AppRoot", {
+                  screen: "MainTabs",
+                  params: { screen: "Tickets" },
                 }),
             },
             {
               text: "OK",
               style: "cancel",
               onPress: () =>
-                navigation.navigate("MainTabs", {
-                  screen: "Tickets",
+                navigation.navigate("AppRoot", {
+                  screen: "MainTabs",
+                  params: { screen: "Tickets" },
                 }),
             },
           ]
@@ -312,7 +340,11 @@ export default function PaymentScreen() {
         setPaymentStatus("failed");
       }
     } catch (error) {
-      console.error(error);
+      console.warn(
+        "[Payment finalize]",
+        error?.response?.status,
+        error?.response?.data?.message || error?.message
+      );
       try {
         await authClient.post("/api/payments/booking/finalize", {
           reference_interne: referenceInterne,
@@ -492,7 +524,7 @@ export default function PaymentScreen() {
                 <Text style={styles.inputLabel}>Numéro (Mobile Money)</Text>
                 <TextInput
                   style={styles.input}
-                  placeholder="Ex : 771234567"
+                  placeholder="Ex : 771234567 (sans indicatif pays)"
                   placeholderTextColor={COLORS.muted}
                   value={phone}
                   onChangeText={setPhone}
@@ -502,7 +534,8 @@ export default function PaymentScreen() {
                 <View style={styles.infoMessage}>
                   <Info size={18} color={COLORS.warning} />
                   <Text style={styles.infoMessageText}>
-                    Composez <Text style={styles.boldText}>#144#77#</Text> sur Orange si nécessaire.
+                    Composez <Text style={styles.boldText}>#144#77#</Text> sur Orange si nécessaire. En
+                    sandbox DeegiPay, l’OTP de documentation est souvent <Text style={styles.boldText}>5555</Text>.
                   </Text>
                 </View>
 

@@ -58,35 +58,40 @@ export default function VilleRecherche() {
 
       const token = await getToken();
       if (token) {
-        const { data } = await authClient.get("/api/historique-recherches/recent", {
-          headers: authHeaders(token),
-        });
-        const items = [];
-        (data?.trajets || []).forEach((t) => {
-          const vd = t.villeDepart;
-          const va = t.villeArrivee;
-          if (vd?.nom && va?.nom) {
-            items.push({
-              id: `traj-${t.id}`,
-              kind: "trajet",
-              label: `${vd.nom} → ${va.nom}`,
-              villeDepart: vd,
-              villeArrivee: va,
-            });
-          }
-        });
-        (data?.villes || []).forEach((row, i) => {
-          const tx = row.texte;
-          if (tx) {
-            items.push({
-              id: `ville-${tx}-${i}`,
-              kind: "ville",
-              label: tx,
-              texte: tx,
-            });
-          }
-        });
-        setHistoryItems(items.slice(0, 12));
+        try {
+          const { data } = await authClient.get("/api/historique-recherches/recent", {
+            headers: authHeaders(token),
+          });
+          const items = [];
+          (data?.trajets || []).forEach((t) => {
+            const vd = t.villeDepart;
+            const va = t.villeArrivee;
+            if (vd?.nom && va?.nom) {
+              items.push({
+                id: `traj-${t.id}`,
+                kind: "trajet",
+                label: `${vd.nom} → ${va.nom}`,
+                villeDepart: vd,
+                villeArrivee: va,
+              });
+            }
+          });
+          (data?.villes || []).forEach((row, i) => {
+            const tx = row.texte;
+            if (tx) {
+              items.push({
+                id: `ville-${tx}-${i}`,
+                kind: "ville",
+                label: tx,
+                texte: tx,
+              });
+            }
+          });
+          setHistoryItems(items.slice(0, 12));
+        } catch (histErr) {
+          console.warn("Historique recherches indisponible:", histErr?.response?.status);
+          setHistoryItems([]);
+        }
       } else {
         setHistoryItems([]);
       }
@@ -266,9 +271,9 @@ export default function VilleRecherche() {
               {user ? "Aucun historique pour l'instant." : "Connectez-vous pour enregistrer vos recherches."}
             </Text>
           ) : (
-            historyItems.map((item) => (
+            historyItems.map((item, index) => (
               <TouchableOpacity
-                key={item.id}
+                key={String(item.id ?? `hist-${item.label || index}`)}
                 style={styles.historyItem}
                 onPress={() => onHistoryPress(item)}
               >
@@ -286,9 +291,9 @@ export default function VilleRecherche() {
           </Text>
           {sectionLoading ? null : (
             <View style={styles.chipsRow}>
-              {popularCities.map((item) => (
+              {popularCities.map((item, index) => (
                 <TouchableOpacity
-                  key={item.id}
+                  key={String(item.id ?? `pop-${item.name || index}`)}
                   style={styles.chip}
                   onPress={() =>
                     selectCity({ id: item.villeId, nom: item.name })
@@ -311,7 +316,7 @@ export default function VilleRecherche() {
             <FlatList
               style={styles.searchList}
               data={searchResults}
-              keyExtractor={(item) => item.id}
+              keyExtractor={(item, index) => String(item.id ?? `search-${item.nom || index}`)}
               keyboardShouldPersistTaps="handled"
               ListEmptyComponent={
                 <Text style={styles.emptyHint}>Aucune ville trouvée.</Text>

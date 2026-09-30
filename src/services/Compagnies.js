@@ -51,7 +51,11 @@ export default function Compagnies() {
   const fetchCompagnies = useCallback(async () => {
     try {
       const { data } = await authClient.get("/api/compagnies");
-      const rows = Array.isArray(data?.compagnies) ? data.compagnies : [];
+      const rows = Array.isArray(data?.compagnies)
+        ? data.compagnies
+        : Array.isArray(data)
+          ? data
+          : [];
       setCompagnies(rows.map(mapCompagnie));
     } catch (e) {
       console.error("Erreur chargement compagnies:", e);
@@ -195,7 +199,7 @@ export default function Compagnies() {
           <FlatList
             data={filteredCompagnies}
             renderItem={renderCompagnieCard}
-            keyExtractor={(item) => item.id}
+            keyExtractor={(item) => String(item.id)}
             scrollEnabled={false}
             contentContainerStyle={styles.listContainer}
           />

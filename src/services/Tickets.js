@@ -1,4 +1,4 @@
-import React, { useState, useRef, useMemo, useCallback } from "react";
+import React, { useState, useCallback } from "react";
 import {
   StyleSheet,
   Text,
@@ -8,30 +8,28 @@ import {
   RefreshControl,
   ActivityIndicator,
   Linking,
-  Platform,
   Modal,
-  Dimensions,
 } from "react-native";
 import {
   Calendar,
   Ticket,
   MapPin,
   Users,
-  Printer,
   Building2,
   ArrowLeftRight,
 } from "lucide-react-native";
-import { WebView } from "react-native-webview";
 import Header from "../components/Header";
-import BottomSheet, { BottomSheetBackdrop, BottomSheetView, BottomSheetFlatList } from "@gorhom/bottom-sheet";
 import { useNavigation, useFocusEffect } from "@react-navigation/native";
 import Toast from "react-native-toast-message";
 import COLORS from "../utils/COLORS";
 import { authClient } from "../api/auth";
-import { API_BASE_URL } from "../config/api";
+import { resolveApiMediaUrl } from "../utils/mediaUrl";
 import { getToken } from "../auths/authStorage";
 
-const API_ROOT = String(API_BASE_URL || "").replace(/\/$/, "");
+const pdfFullUrl = (billet) => {
+  if (!billet?.pdf_url) return null;
+  return resolveApiMediaUrl(billet.pdf_url);
+};
 
 const isReservationActive = (r) => {
   const s = String(r?.statut || "").toUpperCase();
@@ -70,36 +68,13 @@ const totalPayeReservation = (r) => {
 const formatPrice = (prix) =>
   `${Number(prix || 0).toLocaleString("fr-FR")} FCFA`;
 
-const pdfFullUrl = (billet) => {
-  if (!billet?.pdf_url) return null;
-  if (billet.pdf_url.startsWith("http")) return billet.pdf_url;
-  return `${API_ROOT}${billet.pdf_url}`;
-};
-
-// Version améliorée pour l'affichage des PDF
-const getPdfViewerUrl = (pdfUrl) => {
-  if (!pdfUrl) return null;
-  
-  // Pour Android, utiliser Google Viewer (plus fiable)
-  if (Platform.OS === "android") {
-    return `https://docs.google.com/viewer?url=${encodeURIComponent(pdfUrl)}&embedded=true`;
-  }
-  
-  // Pour iOS, le WebView gère nativement les PDF
-  return pdfUrl;
-};
-
 export default function MesTickets() {
   const navigation = useNavigation();
   const [refreshing, setRefreshing] = useState(false);
   const [loading, setLoading] = useState(true);
   const [reservations, setReservations] = useState([]);
-  const [selectedBillet, setSelectedBillet] = useState(null);
-  const [pdfUrl, setPdfUrl] = useState(null);
   const [cancelTarget, setCancelTarget] = useState(null);
   const [cancelLoading, setCancelLoading] = useState(false);
-  const detailsSheetRef = useRef(null);
-  const detailsSnapPoints = useMemo(() => ["90%"], []);
 
   const loadReservations = useCallback(async () => {
     const token = await getToken();
@@ -109,14 +84,17 @@ export default function MesTickets() {
       return 0;
     }
     try {
-      const { data } = await authClient.get("/api/reservations/mes-reservations", {
-        headers: { Authorization: `Bearer ${token}` },
-      });
+      const { data } = await authClient.get("reservations/mes-reservations");
+      console.log("data", data);
       const list = Array.isArray(data?.reservations) ? data.reservations : [];
       setReservations(list);
       return list.length;
     } catch (e) {
-      const msg = e?.response?.data?.message || e?.message || "Erreur chargement";
+      const status = e?.response?.status;
+      const msg =
+        status === 401
+          ? "Connectez-vous pour voir vos tickets"
+          : e?.response?.data?.message || e?.message || "Erreur chargement";
       Toast.show({ type: "error", text1: "Tickets", text2: String(msg) });
       setReservations([]);
       return 0;
@@ -130,18 +108,6 @@ export default function MesTickets() {
       setLoading(true);
       loadReservations();
     }, [loadReservations])
-  );
-
-  const renderBackdrop = useCallback(
-    (props) => (
-      <BottomSheetBackdrop
-        {...props}
-        appearsOnIndex={0}
-        disappearsOnIndex={-1}
-        opacity={0.5}
-      />
-    ),
-    []
   );
 
   const onRefresh = useCallback(async () => {
@@ -165,11 +131,8 @@ export default function MesTickets() {
     });
   };
 
-  const openPdf = (billet) => {
-    console.log("billet", billet);
+  const openPdf = async (billet) => {
     const url = pdfFullUrl(billet);
-    console.log("url", url);
-    
     if (!url) {
       Toast.show({
         type: "error",
@@ -178,20 +141,23 @@ export default function MesTickets() {
       });
       return;
     }
-    setSelectedBillet(billet);
-    setPdfUrl(url);
-    detailsSheetRef.current?.expand();
-  };
-
-  const closeSheet = () => {
-    detailsSheetRef.current?.close();
-    setPdfUrl(null);
-    setSelectedBillet(null);
-  };
-
-  const handlePrint = () => {
-    if (pdfUrl) {
-      Linking.openURL(pdfUrl);
+    try {
+      const can = await Linking.canOpenURL(url);
+      if (!can) {
+        Toast.show({
+          type: "error",
+          text1: "Impossible d'ouvrir",
+          text2: "URL du billet invalide",
+        });
+        return;
+      }
+      await Linking.openURL(url);
+    } catch (e) {
+      Toast.show({
+        type: "error",
+        text1: "Erreur",
+        text2: e?.message || "Ouverture du PDF impossible",
+      });
     }
   };
 
@@ -206,8 +172,6 @@ export default function MesTickets() {
     if (ty === "ALLER_RETOUR" || ty.includes("RETOUR")) return "Aller-retour";
     return "Aller simple";
   };
-
-  const viewerUrl = pdfUrl ? getPdfViewerUrl(pdfUrl) : null;
 
   const confirmAnnulerReservation = useCallback(async () => {
     if (!cancelTarget?.id) {
@@ -228,9 +192,7 @@ export default function MesTickets() {
         });
         return;
       }
-      await authClient.post(`/api/reservations/${cancelTarget.id}/annuler`, {}, {
-        headers: { Authorization: `Bearer ${token}` },
-      });
+      await authClient.post(`/api/reservations/${cancelTarget.id}/annuler`, {});
 
       console.log("[Tickets] Annulation réussie:", cancelTarget.id);
       Toast.show({
@@ -346,32 +308,9 @@ export default function MesTickets() {
                         {labelTypeBillet(r?.billet, t)}
                       </Text>
                     </View>
-                    <View style={styles.detailItem}>
-                      <Users size={14} color={COLORS.muted} />
-                      <Text style={styles.detailText}>
-                        {nb} passager{nb > 1 ? "s" : ""} · {formatPrice(t?.prix)}{" "}
-                        / place
-                      </Text>
-                    </View>
-                    <View style={styles.detailItem}>
-                      <Ticket size={14} color={COLORS.muted} />
-                      <Text style={styles.detailText}>
-                        Total payé · {formatPrice(totalPayeReservation(r))}
-                      </Text>
-                    </View>
-                    {r.billet?.numero_billet ? (
-                      <View style={styles.detailItem}>
-                        <Ticket size={14} color={COLORS.muted} />
-                        <Text style={styles.detailText} numberOfLines={1}>
-                          {r.billet.numero_billet}
-                        </Text>
-                      </View>
-                    ) : null}
                   </View>
 
-                  <Text style={styles.cardTapHint}>
-                    Toucher pour annuler cette réservation
-                  </Text>
+                 
                 </TouchableOpacity>
 
                 <TouchableOpacity
@@ -385,82 +324,6 @@ export default function MesTickets() {
           })
         )}
       </ScrollView>
-
-      {/* BottomSheet pour l'affichage PDF - Style similaire à SalesScreen */}
-      <BottomSheet
-        ref={detailsSheetRef}
-        index={-1}
-        snapPoints={detailsSnapPoints}
-        enablePanDownToClose
-        backdropComponent={renderBackdrop}
-        backgroundStyle={styles.bottomSheetBackground}
-        onClose={() => setPdfUrl(null)}
-      >
-        <BottomSheetFlatList
-          data={[]}
-          keyExtractor={(_, index) => String(index)}
-          renderItem={null}
-          ListHeaderComponent={
-            <View style={styles.pdfModal}>
-              <Text style={styles.pdfModalTitle}>
-                {selectedBillet?.numero_billet || "Billet"}
-              </Text>
-              
-              {viewerUrl ? (
-                <>
-                  <View style={styles.pdfWebViewWrap}>
-                    <WebView
-                      source={{ uri: viewerUrl }}
-                      style={styles.pdfWebView}
-                      scrollEnabled
-                      startInLoadingState
-                      originWhitelist={["*"]}
-                      mixedContentMode="always"
-                      allowsInlineMediaPlayback
-                      nestedScrollEnabled
-                      androidLayerType="hardware"
-                      renderLoading={() => (
-                        <View style={styles.pdfLoading}>
-                          <ActivityIndicator size="large" color={COLORS.primary} />
-                          <Text style={styles.pdfLoadingText}>Chargement du billet...</Text>
-                        </View>
-                      )}
-                      onError={(syntheticEvent) => {
-                        const { nativeEvent } = syntheticEvent;
-                        console.error("WebView error: ", nativeEvent);
-                        Toast.show({
-                          type: "error",
-                          text1: "Erreur",
-                          text2: "Impossible d'afficher le PDF",
-                        });
-                      }}
-                    />
-                  </View>
-                  
-                  <TouchableOpacity
-                    style={styles.pdfPrintButton}
-                    onPress={handlePrint}
-                  >
-                    <Printer size={20} color={COLORS.white} />
-                    <Text style={styles.pdfPrintText}>Ouvrir dans le navigateur</Text>
-                  </TouchableOpacity>
-                </>
-              ) : (
-                <View style={styles.pdfEmpty}>
-                  <Text style={styles.pdfEmptyText}>PDF indisponible</Text>
-                </View>
-              )}
-              
-              <TouchableOpacity
-                style={[styles.pdfPrintButton, { backgroundColor: COLORS.border, marginTop: 8 }]}
-                onPress={closeSheet}
-              >
-                <Text style={[styles.pdfPrintText, { color: COLORS.text }]}>Fermer</Text>
-              </TouchableOpacity>
-            </View>
-          }
-        />
-      </BottomSheet>
 
       <Modal
         visible={!!cancelTarget}
@@ -657,74 +520,6 @@ const styles = StyleSheet.create({
   emptyButtonText: {
     color: COLORS.white,
     fontWeight: "600",
-  },
-  bottomSheetBackground: {
-    borderTopLeftRadius: 20,
-    borderTopRightRadius: 20,
-    backgroundColor: COLORS.card,
-  },
-  pdfModal: {
-    backgroundColor: COLORS.card,
-    borderRadius: 20,
-    padding: 20,
-    minHeight: Dimensions.get('window').height * 0.85,
-  },
-  pdfModalTitle: {
-    fontSize: 18,
-    fontWeight: "800",
-    color: COLORS.text,
-    marginBottom: 14,
-    textAlign: "center",
-  },
-  pdfWebViewWrap: {
-    height: Dimensions.get('window').height * 0.6,
-    width: '100%',
-    borderRadius: 12,
-    overflow: 'hidden',
-    backgroundColor: COLORS.bg,
-  },
-  pdfWebView: {
-    flex: 1,
-    backgroundColor: 'transparent',
-  },
-  pdfLoading: {
-    position: 'absolute',
-    left: 0,
-    right: 0,
-    top: 0,
-    bottom: 0,
-    justifyContent: 'center',
-    alignItems: 'center',
-    backgroundColor: COLORS.bg,
-  },
-  pdfLoadingText: {
-    marginTop: 12,
-    fontSize: 14,
-    color: COLORS.muted,
-  },
-  pdfPrintButton: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 8,
-    backgroundColor: COLORS.primary,
-    paddingVertical: 14,
-    borderRadius: 14,
-    marginTop: 16,
-  },
-  pdfPrintText: {
-    color: COLORS.white,
-    fontWeight: "800",
-    fontSize: 16,
-  },
-  pdfEmpty: {
-    height: 200,
-    justifyContent: "center",
-    alignItems: "center",
-  },
-  pdfEmptyText: {
-    fontSize: 15,
-    color: COLORS.muted,
   },
   modalOverlay: {
     flex: 1,

@@ -15,7 +15,7 @@ import { MaterialIcons } from "@expo/vector-icons";
 import COLORS from "../../utils/COLORS";
 import { authClient } from "../../api/auth";
 import { useAuth } from "../../context/AuthContext";
-import { API_BASE_URL } from "../../config/api";
+import { buildApiUrl } from "../../config/api";
 import { getToken } from "../../auths/authStorage";
 
 function normalizePhone(raw) {
@@ -107,8 +107,7 @@ async function uploadColisPhotoToServer(localUri, compagnieId, authToken) {
   const formData = new FormData();
   formData.append("image", { uri: localUri, type, name });
 
-  const base = String(API_BASE_URL || "").replace(/\/+$/, "");
-  const url = `${base}/api/colis/upload-photo?compagnie_id=${encodeURIComponent(compagnieId)}`;
+  const url = buildApiUrl("/api/colis/upload-photo", `compagnie_id=${encodeURIComponent(compagnieId)}`);
 
   const res = await fetch(url, {
     method: "POST",

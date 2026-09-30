@@ -17,7 +17,7 @@ export default function CustomBottomTabs({ state, descriptors, navigation }) {
   const labelMap = {
     Accueil: "Accueil",
     Colis: "Colis",
-    Tickets: "Tickets",
+    Tickets: "Tickets", 
     Compagnies: "Compagnies",
     Profile: "Profil",
   }

@@ -32,7 +32,7 @@ import Header from "../components/Header";
 import COLORS from "../utils/COLORS";
 import { authClient } from "../api/auth";
 import { useAuth } from "../context/AuthContext";
-import { resolveApiMediaUrl } from "../utils/mediaUrl";
+import { transformParcelData } from "../utils/parcelApi";
 
 const { width, height } = Dimensions.get("window");
 
@@ -75,28 +75,6 @@ const STATUS_CONFIG = {
   },
 };
 
-// Images colis : tableau Sequelize ou chaîne JSON d’URLs
-const parseImages = (imagesField) => {
-  if (imagesField == null) return [];
-  if (Array.isArray(imagesField)) {
-    return imagesField.filter((x) => typeof x === "string" && String(x).trim());
-  }
-  if (typeof imagesField === "string") {
-    const s = imagesField.trim();
-    if (!s) return [];
-    try {
-      const parsed = JSON.parse(s);
-      return Array.isArray(parsed)
-        ? parsed.filter((x) => typeof x === "string" && String(x).trim())
-        : [];
-    } catch {
-      return [];
-    }
-  }
-  return [];
-};
-
-// Helper pour formater la date
 const formatDate = (dateString) => {
   if (!dateString) return "N/A";
   const date = new Date(dateString);
@@ -108,7 +86,6 @@ const formatDate = (dateString) => {
   });
 };
 
-// Helper pour formater la date courte
 const formatShortDate = (dateString) => {
   if (!dateString) return "N/A";
   const date = new Date(dateString);
@@ -118,69 +95,14 @@ const formatShortDate = (dateString) => {
   });
 };
 
-// Transformation des données API vers le format attendu par les composants
-const transformParcelData = (apiParcel, type) => {
-  const statusKey = apiParcel.statut_colis || "EN_ATTENTE";
-  const timeline = Array.isArray(apiParcel.tracking)
-    ? apiParcel.tracking.map((event) => ({
-        status: event.statut,
-        date: event.createdAt,
-        description: event.description,
-        location: event.location,
-      }))
-    : [];
-
-  return {
-    id: apiParcel.id,
-    expediteur_id: apiParcel.expediteur_id,
-    destinataire_id: apiParcel.destinataire_id,
-    type: type,
-    trackingNumber: apiParcel.Numero_suivi_colis || `COLIS-${apiParcel.id}`,
-    status: statusKey.toLowerCase().replace(/_/g, "_"),
-    description: apiParcel.nom_colis || "Colis",
-    weight: apiParcel.poids_colis ? `${apiParcel.poids_colis} kg` : ".....",
-    dimensions: apiParcel.dimensions_colis || ".....",
-    value: apiParcel.valeur_declaree_colis ? `${apiParcel.valeur_declaree_colis.toLocaleString()} FCFA` : "N/A",
-    createdAt: apiParcel.date_enregistrement_colis,
-    estimatedDelivery: apiParcel.date_livraison_colis,
-    images: parseImages(apiParcel.images_colis).map(resolveApiMediaUrl),
-    sender: {
-      name:
-        `${apiParcel.expediteur?.prenom || ""} ${apiParcel.expediteur?.nom || ""}`.trim() ||
-        "Expéditeur",
-      phone: apiParcel.expediteur?.numero_telephone || ".....",
-      email: apiParcel.expediteur?.email || ".....",
-      address: apiParcel.expediteur?.adresse || "Adresse non spécifiée",
-    },
-    receiver: {
-      name:
-        `${apiParcel.destinataire?.prenom || ""} ${apiParcel.destinataire?.nom || ""}`.trim() ||
-        "Destinataire",
-      phone: apiParcel.destinataire?.numero_telephone || ".....",
-      email: apiParcel.destinataire?.email || ".....",
-      address: apiParcel.destinataire?.adresse || "Adresse non spécifiée",
-    },
-    company: {
-      name: apiParcel.compagnie?.nom_compagnie || "DeegiTrans Express",
-      logo: apiParcel.compagnie?.logo_compagnie
-        ? resolveApiMediaUrl(apiParcel.compagnie.logo_compagnie)
-        : null,
-      tracking: `https://tracking.deegitrans.com/${apiParcel.Numero_suivi_colis}`,
-    },
-    timeline,
-  };
-};
-
-// Extraire la ville de l'adresse
 const extractCityFromAddress = (address) => {
   if (!address) return null;
   const parts = address.split(",");
   return parts[parts.length - 1]?.trim();
 };
 
-// Composant ParcelCard (inchangé)
 const ParcelCard = ({ parcel, onPress, user }) => {
-  const statusKey = parcel.status.toUpperCase().replace(/_/g, "_");
+  const statusKey = String(parcel.status || "EN_ATTENTE").toUpperCase();
   const status = STATUS_CONFIG[statusKey] || STATUS_CONFIG.EN_ATTENTE;
 
   const createdDate = formatShortDate(parcel.createdAt);
@@ -250,14 +172,15 @@ const ParcelDetailModal = ({ visible, parcel, onClose }) => {
 
   if (!parcel) return null;
 
-  const statusKey = parcel.status.toUpperCase().replace(/_/g, "_");
+  const statusKey = String(parcel.status || "EN_ATTENTE").toUpperCase();
   const status = STATUS_CONFIG[statusKey] || STATUS_CONFIG.EN_ATTENTE;
   const StatusIcon = status.icon;
 
   const renderTimeline = () => (
     <View style={styles.timelineContainer}>
       {parcel.timeline.map((event, index) => {
-        const eventStatus = STATUS_CONFIG[event.status] || STATUS_CONFIG.EN_ATTENTE;
+        const eventKey = String(event.status || "").toUpperCase();
+        const eventStatus = STATUS_CONFIG[eventKey] || STATUS_CONFIG.EN_ATTENTE;
         const EventIcon = eventStatus.icon;
         const isLast = index === parcel.timeline.length - 1;
         const eventDate = formatDate(event.date);
@@ -591,7 +514,13 @@ const Colis = () => {
       setSentParcels(transformedSent);
       setReceivedParcels(transformedReceived);
     } catch (error) {
-      console.error("Erreur lors du chargement des colis:", error);
+      const status = error?.response?.status;
+      if (status === 401) {
+        setSentParcels([]);
+        setReceivedParcels([]);
+      } else {
+        console.error("Erreur lors du chargement des colis:", error?.response?.data || error?.message);
+      }
     } finally {
       setLoading(false);
       setRefreshing(false);

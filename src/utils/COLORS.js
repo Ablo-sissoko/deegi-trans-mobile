@@ -1,60 +1,64 @@
+/**
+ * Palette DeegiTrans — bleu foncé, noir, peu de blanc.
+ * primary = actions / accents ; textes = noir ou bleu foncé ; fonds = clair overteint bleu.
+ */
 const COLORS = {
-  primary: "#f97316",
-  primaryDark: "#ea580c",
-  secondary: "#0ea5a4",
-  bg: "#f8fafc",
-  bgSoft: "#f1f5f9",
-  background: "#ffffff",
-  card: "#ffffff",
-  text: "#0f172a",
-  textLight: "#64748b",
-  textStrong: "#1F2937",
-  muted: "#94a3b8",
-  mutedStrong: "#9CA3AF",
-  border: "#e2e8f0",
-  borderLight: "#F4F5F7",
-  borderStrong: "#E5E7EB",
-  success: "#10b981",
-  error: "#ef4444",
-  warning: "#f59e0b",
-  info: "#3b82f6",
-  white: "#ffffff",
-  whiteSoft: "rgba(255,255,255,0.9)",
-  black: "#000000",
-  highlight: "#fff7ed",
-  overlayDark: "rgba(0,0,0,0.3)",
-  overlayMedium: "rgba(0,0,0,0.5)",
-  overlayHeavy: "rgba(0,0,0,0.6)",
-  overlayStrong: "rgba(0,0,0,0.9)",
-  overlayLight: "rgba(0,0,0,0.2)",
-  whiteTranslucent: "rgba(255,255,255,0.2)",
-  successSoft: "#dcfce7",
-  successSoftAlt: "#d1fae5",
-  errorSoft: "#fee2e2",
-  warningSoft: "#fef3c7",
-  infoSoft: "#e0f2fe",
-  infoSoftAlt: "#dbeafe",
+  // Marque
+  primary: '#0B1F3A',
+  primaryDark: '#061428',
+  primarySoft: '#E8EEF5',
+  secondary: '#132F4C',
 
+  // Neutres / texte
+  black: '#000000',
+  dark: '#0A0A0A',
+  text: '#0B1F3A',
+  textStrong: '#000000',
+  textLight: '#3D4F66',
+  gray: '#2A3544',
+  muted: '#5A6B7F',
+  mutedStrong: '#7A8A9C',
 
-  
-  primary: "#FF6B00", // Orange comme dans votre image
-  secondary: "#FF8C42",
-  success: "#4CAF50",
-  warning: "#FF9800",
-  error: "#F44336",
-  info: "#2196F3",
-  white: "#FFFFFF",
-  dark: "#333333",
-  gray: "#666666",
-  muted: "#999999",
-  border: "#E0E0E0",
-  bgSoft: "#F5F5F5",
-  // Ajoutez ces couleurs si nécessaire
-  lightOrange: "#FFF3E0",
-  lightGreen: "#E8F5E9",
-  lightBlue: "#E3F2FD",
-  lightPurple: "#F3E5F5",
-  lightRed: "#FFEBEE",
-};
+  white: '#FFFFFF',
+  whiteSoft: 'rgba(255,255,255,0.92)',
+  whiteTranslucent: 'rgba(255,255,255,0.18)',
 
-export default COLORS;
+  // Surfaces (peu de blanc pur — teinte bleutée)
+  background: '#F4F6F9',
+  card: '#FFFFFF',
+  bg: '#E9EEF5',
+  bgSoft: '#DDE5F0',
+
+  // Bordures
+  border: '#C5D0DE',
+  borderLight: '#E2E8F0',
+  borderStrong: '#9AA8BA',
+
+  // États (harmonisés bleu / neutre)
+  success: '#0F766E',
+  successSoft: '#CCFBF1',
+  successSoftAlt: '#99F6E4',
+  warning: '#B45309',
+  warningSoft: '#FEF3C7',
+  warningLight: '#FFFBEB',
+  error: '#B91C1C',
+  errorSoft: '#FEE2E2',
+  info: '#0B1F3A',
+  infoSoft: '#E8EEF5',
+  infoSoftAlt: '#D5DEEA',
+
+  // Accents / overlays
+  highlight: '#E8EEF5',
+  lightGreen: '#E8EEF5',
+  lightOrange: '#E8EEF5',
+  lightBlue: '#D5DEEA',
+  lightPurple: '#E8EEF5',
+  lightRed: '#FEE2E2',
+  overlayDark: 'rgba(11,31,58,0.35)',
+  overlayMedium: 'rgba(0,0,0,0.5)',
+  overlayHeavy: 'rgba(0,0,0,0.65)',
+  overlayStrong: 'rgba(0,0,0,0.9)',
+  overlayLight: 'rgba(11,31,58,0.2)',
+}
+
+export default COLORS

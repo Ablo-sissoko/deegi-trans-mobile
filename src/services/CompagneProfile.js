@@ -51,6 +51,7 @@ import COLORS from "../utils/COLORS";
 import { useRoute, useNavigation } from "@react-navigation/native";
 import { authClient } from "../api/auth";
 import { resolveApiMediaUrl } from "../utils/mediaUrl";
+import { fetchCompanyRoutes, fetchTrajetsByModeleDate } from "../utils/companyApi";
 import { getToken } from "../auths/authStorage";
 import FontAwesome from '@expo/vector-icons/FontAwesome';
 import Toast from "react-native-toast-message";
@@ -182,6 +183,7 @@ const CompanyProfileScreen = () => {
   const fetchAvisCompagnie = async () => {
     try {
       const { data } = await authClient.get(`/api/avis/compagnie/${compagnieId}`);
+      console.log ("data", data);
       const avisRows = Array.isArray(data?.avis) ? data.avis : [];
       const mapped = avisRows.map(mapAvisApiToReview);
       setCompanyData((prev) => ({ ...prev, reviews: mapped }));
@@ -194,38 +196,15 @@ const CompanyProfileScreen = () => {
     const fetchProfile = async () => {
       try {
         const { data } = await authClient.get(`/api/compagnies/profile/${compagnieId}`);
-        const { data: planningData } = await authClient.get(`/api/compagnies/${compagnieId}/plannings`);
-        const planningList = Array.isArray(planningData?.data) ? planningData.data : [];
-
-        const routes = planningList.map((entry) => {
-          const tm = entry?.trajetModele || {};
-          const from = tm?.ville_depart_nom || "Ville départ";
-          const to = tm?.ville_arrivee_nom || "Ville arrivée";
-          return {
-            trajetModeleId: tm?.id,
-            from,
-            to,
-            price: `${Number(tm?.prix || 0).toLocaleString("fr-FR")} FCFA`,
-            duration: "-",
-            distance: "-",
-            frequency: `${(entry?.trajetPlannings || []).length} planning(s)`,
-          };
-        });
-
-        const schedules = planningList.map((entry) => {
-          const tm = entry?.trajetModele || {};
-          const from = tm?.ville_depart_nom || "Ville départ";
-          const to = tm?.ville_arrivee_nom || "Ville arrivée";
-          const times = [...new Set((entry?.trajetPlannings || []).flatMap((p) => parseJsonArray(p?.heures)))];
-          return { route: `${from} → ${to}`, times };
-        });
-
         setCompanyData((prev) => ({
           ...prev,
           ...mapApiProfileToCompanyData(data),
-          routes,
-          schedules,
         }));
+
+        const { routes, schedules } = await fetchCompanyRoutes(authClient, compagnieId);
+        if (routes.length || schedules.length) {
+          setCompanyData((prev) => ({ ...prev, routes, schedules }));
+        }
       } catch (e) {
         console.error("Erreur chargement profil compagnie:", e);
       }
@@ -319,10 +298,8 @@ const CompanyProfileScreen = () => {
     if (!trajetModeleId) return;
     try {
       setLoadingTrajets(true);
-      const { data } = await authClient.post(`/api/compagnies/modele/${trajetModeleId}/date`, {
-        date,
-      });
-      setSelectedTrajets(Array.isArray(data?.trajets) ? data.trajets : []);
+      const trajets = await fetchTrajetsByModeleDate(authClient, trajetModeleId, date);
+      setSelectedTrajets(trajets);
     } catch (error) {
       console.log("Erreur chargement trajets par date:", error?.response?.data || error?.message);
       setSelectedTrajets([]);
@@ -381,7 +358,9 @@ const CompanyProfileScreen = () => {
       return;
     }
     closeBookingModal();
+    const tid = Number(selectedTrajet.id);
     navigation.navigate("Payment", {
+      trajetId: Number.isFinite(tid) && tid > 0 ? tid : selectedTrajet.id,
       selectedTrajet,
       selectedRoute,
       selectedDate,
