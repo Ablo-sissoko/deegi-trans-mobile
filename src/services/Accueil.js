@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect, useMemo, useCallback } from "react";
+import React, { useCallback, useEffect, useState } from "react";
 import {
   StyleSheet,
   Text,
@@ -6,733 +6,472 @@ import {
   TouchableOpacity,
   ScrollView,
   Image,
-  Animated,
-  Easing,
+  RefreshControl,
 } from "react-native";
-import { MapPin, Calendar, ArrowRightLeft, ArrowRight } from "lucide-react-native";
-import Header from "../components/Header";
-import { Calendar as RNCalendar, LocaleConfig } from "react-native-calendars";
-import BottomSheet, { BottomSheetBackdrop, BottomSheetView } from "@gorhom/bottom-sheet";
-import { useNavigation } from "@react-navigation/native";
-import Toast from "react-native-toast-message";
-import COLORS from "../utils/COLORS";
-import { authClient } from "../api/auth";
-import { getToken } from "../auths/authStorage";
+import { StatusBar } from "expo-status-bar";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { DrawerActions, useIsFocused, useNavigation } from "@react-navigation/native";
+import {
+  MapPin,
+  Bell,
+  Ticket,
+  Calendar,
+  Heart,
+  User,
+  ArrowRight,
+  ChevronRight,
+} from "lucide-react-native";
 import { useAuth } from "../context/AuthContext";
+import { authClient } from "../api/auth";
+import COLORS from "../utils/COLORS";
 
-LocaleConfig.locales["fr"] = {
-  monthNames: [
-    "Janvier", "Février", "Mars", "Avril", "Mai", "Juin",
-    "Juillet", "Août", "Septembre", "Octobre", "Novembre", "Décembre"
-  ],
-  monthNamesShort: [
-    "Janv.", "Févr.", "Mars", "Avr.", "Mai", "Juin",
-    "Juil.", "Août", "Sept.", "Oct.", "Nov.", "Déc."
-  ],
-  dayNames: [
-    "Dimanche", "Lundi", "Mardi", "Mercredi", "Jeudi", "Vendredi", "Samedi"
-  ],
-  dayNamesShort: ["Dim.", "Lun.", "Mar.", "Mer.", "Jeu.", "Ven.", "Sam."],
-  today: "Aujourd'hui",
-};
+const BUS_IMAGE =
+  "https://images.unsplash.com/photo-1544620347-c4fd4a3d5957?w=900&q=80";
 
-LocaleConfig.defaultLocale = "fr";
+const FALLBACK_ROUTES = [
+  {
+    id: "bamako-sikasso",
+    from: "Bamako",
+    to: "Sikasso",
+    image: "https://images.unsplash.com/photo-1469854523086-cc02fe5d8800?w=800&q=80",
+  },
+  {
+    id: "bamako-kayes",
+    from: "Bamako",
+    to: "Kayes",
+    image: "https://images.unsplash.com/photo-1501785888041-af3ef285b470?w=800&q=80",
+  },
+  {
+    id: "bamako-segou",
+    from: "Bamako",
+    to: "Ségou",
+    image: "https://images.unsplash.com/photo-1476514525535-07fb3b4ae5f1?w=800&q=80",
+  },
+];
 
-const GOLD = "#D4AF37";
-
-function ZoomMapPin({ size = 18 }) {
-  const scale = useRef(new Animated.Value(1)).current;
-
-  useEffect(() => {
-    const animation = Animated.loop(
-      Animated.sequence([
-        Animated.timing(scale, {
-          toValue: 1.22,
-          duration: 650,
-          easing: Easing.inOut(Easing.ease),
-          useNativeDriver: true,
-        }),
-        Animated.timing(scale, {
-          toValue: 1,
-          duration: 650,
-          easing: Easing.inOut(Easing.ease),
-          useNativeDriver: true,
-        }),
-      ]),
-    );
-    animation.start();
-    return () => animation.stop();
-  }, [scale]);
-
-  return (
-    <Animated.View style={{ transform: [{ scale }] }}>
-      <MapPin size={size} color={GOLD} />
-    </Animated.View>
-  );
+function normalizePopular(rows) {
+  return (Array.isArray(rows) ? rows : []).map((r, index) => ({
+    ...r,
+    id: r?.id ?? `route-${index}`,
+    from: r?.from || r?.villeDepart?.nom || "Départ",
+    to: r?.to || r?.villeArrivee?.nom || "Arrivée",
+    departureId: r?.ville_depart_id ?? r?.departureId ?? null,
+    destinationId: r?.ville_arrivee_id ?? r?.arrivalId ?? null,
+    image: r?.image || FALLBACK_ROUTES[index % FALLBACK_ROUTES.length].image,
+  }));
 }
 
 export default function Accueil() {
   const navigation = useNavigation();
+  const isFocused = useIsFocused();
+  const insets = useSafeAreaInsets();
   const { user } = useAuth();
-  const [departure, setDeparture] = useState("");
-  const [destination, setDestination] = useState("");
-  const [departureId, setDepartureId] = useState(null);
-  const [destinationId, setDestinationId] = useState(null);
-  const [date, setDate] = useState("");
-  const [tripType, setTripType] = useState("aller simple");
-  const [dateOption, setDateOption] = useState("aujourd'hui");
-  const calendarRef = useRef(null);
-  const calendarSnapPoints = useMemo(() => ["45%"], []);
-  const renderCalendarBackdrop = useCallback(
-    (props) => (
-      <BottomSheetBackdrop
-        {...props}
-        appearsOnIndex={0}
-        disappearsOnIndex={-1}
-        opacity={0.35}
-      />
-    ),
-    []
-  );
+  const [routes, setRoutes] = useState(FALLBACK_ROUTES);
+  const [activeDot, setActiveDot] = useState(0);
+  const [refreshing, setRefreshing] = useState(false);
 
+  const firstName = user?.prenom?.trim() || "";
+  const initials = `${user?.prenom?.[0] || ""}${user?.nom?.[0] || ""}`.toUpperCase() || "D";
 
-  useEffect(() => {
-    handleDateOption(dateOption);
-  }, [dateOption]);
-
-  const formatToISO = (value) => value.toISOString().split("T")[0];
-  const formatShortDate = (dateStr) => {
-    if (!dateStr) return "";
-    const dateObj = new Date(dateStr);
-    if (Number.isNaN(dateObj.getTime())) return dateStr;
-    return dateObj.toLocaleDateString("fr-FR", {
-      weekday: "short",
-      day: "numeric",
-      month: "short",
-    });
-  };
-
-  const handleDateOption = (option) => {
-    setDateOption(option);
-    if (option === "aujourd'hui") {
-      setDate(formatToISO(new Date()));
-    } else if (option === "demain") {
-      const nextDay = new Date();
-      nextDay.setDate(nextDay.getDate() + 1);
-      setDate(formatToISO(nextDay));
-    } else {
-      setDate("");
-    }
-  };
-
-  const [popularRoutes, setPopularRoutes] = useState([]);
-  const [popularLoading, setPopularLoading] = useState(true);
-
-  useEffect(() => {  
-    let cancelled = false;
-    const normalizePopular = (rows) =>
-      (Array.isArray(rows) ? rows : []).map((r, index) => ({
-        ...r,
-        id: r?.id ?? `route-${r?.from || r?.departureId || index}-${r?.to || r?.arrivalId || index}`,
-        from: r?.from || r?.villeDepart?.nom || "Départ",
-        to: r?.to || r?.villeArrivee?.nom || "Arrivée",
-        price:
-          typeof r?.price === "number"
-            ? `${Number(r.price).toLocaleString("fr-FR")} FCFA`
-            : r?.price ?? (r?.prix != null ? `${Number(r.prix).toLocaleString("fr-FR")} FCFA` : "—"),
-        image:
-          r?.image ||
-          "https://images.unsplash.com/photo-1544620347-c4fd4a3d5957?w=400&q=80",
-      }));
-
-    (async () => {
-      try {
-        const params = { limit: 8 };
-        if (user?.id != null) params.user_id = user.id;
-        try {
-          const { data } = await authClient.get("/api/routes/popular", { params });
-          if (!cancelled && Array.isArray(data)) setPopularRoutes(normalizePopular(data));
-        } catch {
-          try {
-            const { data: modelesData } = await authClient.get("/api/trajet-modeles");
-            const modeles = Array.isArray(modelesData?.trajetModeles) ? modelesData.trajetModeles : [];
-            const fallback = modeles.slice(0, 8).map((m, index) => ({
-              id: m?.id ?? `modele-${index}`,
-              from: m?.villeDepart?.nom || "Départ",
-              to: m?.villeArrivee?.nom || "Arrivée",
-              departureId: m?.ville_depart_id,
-              arrivalId: m?.ville_arrivee_id,
-              ville_depart_id: m?.ville_depart_id,
-              ville_arrivee_id: m?.ville_arrivee_id,
-              price:
-                m?.prix != null
-                  ? `${Number(m.prix).toLocaleString("fr-FR")} FCFA`
-                  : "—",
-              image: "https://images.unsplash.com/photo-1544620347-c4fd4a3d5957?w=400&q=80",
-            }));
-            if (!cancelled && fallback.length) setPopularRoutes(fallback);
-            else if (!cancelled) setPopularRoutes([]);
-          } catch {
-            if (!cancelled) setPopularRoutes([]);
-          }
-        }
-      } finally {
-        if (!cancelled) setPopularLoading(false);
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, [user?.id]);
-
-  const openCitySearch = (t) => {
-    navigation.navigate("VilleRecherche", {
-      type: t,
-      onSelect: (ville) => {
-        const name = typeof ville === "string" ? ville : ville?.nom ?? "";
-        const vid = typeof ville === "object" && ville != null ? ville.id : null;
-        if (!name) return;
-        if (t === "departure") {
-          if (name === destination) {
-            Toast.show({
-              text1: "Le point de départ et la destination ne peuvent pas être le même",
-              type: "error",
-            });
-            return;
-          }
-          setDeparture(name);
-          setDepartureId(vid ?? null);
-        } else {
-          if (name === departure) {
-            Toast.show({
-              text1: "Le point de départ et la destination ne peuvent pas être le même",
-              type: "error",
-            });
-            return;
-          }
-          setDestination(name);
-          setDestinationId(vid ?? null);
-        }
-      },
-    });
-  };
-
-  const RechercherRoute = async () => {
-    if (!departure || !destination || !date) {
-      Toast.show({
-        text1: "Veuillez remplir tous les champs",
-        type: "error",
-      });
-      return;
-    }
-    if (departureId == null || destinationId == null) {
-      Toast.show({
-        text1: "Sélectionnez les villes dans la liste de recherche",
-        text2: "Les identifiants sont nécessaires pour trouver les trajets.",
-        type: "error",
-      });
-      return;
-    }
+  const loadRoutes = useCallback(async () => {
     try {
-      const token = await getToken();
-      if (token && departureId != null && destinationId != null) {
-        await authClient.post(
-          "/api/historique-recherches/save",
-          {
-            type_recherche: "trajet",
-            ville_depart_id: departureId,
-            ville_arrivee_id: destinationId,
-          },
-          { headers: { Authorization: `Bearer ${token}` } },
+      const params = { limit: 8 };
+      if (user?.id != null) params.user_id = user.id;
+      try {
+        const { data } = await authClient.get("/api/routes/popular", { params });
+        const list = normalizePopular(data);
+        if (list.length) setRoutes(list);
+      } catch {
+        const { data: modelesData } = await authClient.get("/api/trajet-modeles");
+        const modeles = Array.isArray(modelesData?.trajetModeles) ? modelesData.trajetModeles : [];
+        const list = normalizePopular(
+          modeles.slice(0, 8).map((m) => ({
+            id: m?.id,
+            from: m?.villeDepart?.nom,
+            to: m?.villeArrivee?.nom,
+            ville_depart_id: m?.ville_depart_id,
+            ville_arrivee_id: m?.ville_arrivee_id,
+          })),
         );
+        if (list.length) setRoutes(list);
       }
     } catch {
-      /* historique non bloquant */
+      /* les destinations de démonstration restent affichées */
     }
-    const tripTypeApi =
-      String(tripType).toLowerCase().includes("retour") ? "ALLER_RETOUR" : "ALLER_SIMPLE";
-    navigation.navigate("ListeTrajets", {
-      departure,
-      destination,
-      departureId,
-      destinationId,
-      date,
-      tripType,
-      tripTypeApi,
-      returnDate: tripTypeApi === "ALLER_RETOUR" ? date : undefined,
-    });
+  }, [user?.id]);
+
+  useEffect(() => {
+    loadRoutes();
+  }, [loadRoutes]);
+
+  const onRefresh = useCallback(async () => {
+    setRefreshing(true);
+    try {
+      await loadRoutes();
+    } finally {
+      setRefreshing(false);
+    }
+  }, [loadRoutes]);
+
+  const openSearch = (route) => {
+    navigation.navigate("RechercheTrajet", route
+      ? {
+          from: route.from,
+          to: route.to,
+          departureId: route.departureId ?? route.ville_depart_id ?? null,
+          destinationId: route.destinationId ?? route.ville_arrivee_id ?? null,
+        }
+      : undefined);
   };
 
-  return (
-    <View style={styles.container}>
-      <Header />
-      <ScrollView showsVerticalScrollIndicator={false}>
+  const shortcuts = [
+    { label: "Réserver un billet", Icon: Ticket, onPress: () => openSearch() },
+    { label: "Mes réservations", Icon: Calendar, onPress: () => navigation.navigate("Tickets") },
+    { label: "Mes favoris", Icon: Heart, onPress: () => navigation.navigate("Compagnies") },
+    { label: "Profil", Icon: User, onPress: () => navigation.navigate("Profile") },
+  ];
 
-        {/* bienvenue */}
-        <View style={styles.welcomeContainer}>
-          <Text style={styles.welcomeText}>Bienvenue sur DeegiTrans</Text>
-          <Text style={styles.welcomeSubtext}>
-            {user?.prenom ? user.prenom : "Voyageur"}
+  return (
+    <View style={styles.root}>
+      {isFocused ? (
+        <StatusBar style="light" translucent backgroundColor="transparent" />
+      ) : null}
+      <View style={[styles.topBar, { paddingTop: insets.top + 8 }]}>
+        <TouchableOpacity
+          style={styles.pinButton}
+          onPress={() => navigation.dispatch(DrawerActions.openDrawer())}
+          accessibilityRole="button"
+          accessibilityLabel="Ouvrir le menu"
+        >
+          <MapPin size={18} color={COLORS.white} />
+        </TouchableOpacity>
+        <View style={styles.greeting}>
+          <Text style={styles.hello}>Bonjour{firstName ? `, ${firstName}` : ","}</Text>
+          <Text style={styles.welcome}>
+            Bienvenue sur DeegiTrans <Text style={styles.wave}>👋</Text>
           </Text>
         </View>
+        <TouchableOpacity
+          style={styles.bell}
+          onPress={() => navigation.navigate("Notifications")}
+          accessibilityRole="button"
+          accessibilityLabel="Notifications"
+        >
+          <Bell size={18} color={COLORS.white} />
+        </TouchableOpacity>
+        <TouchableOpacity
+          style={styles.avatar}
+          onPress={() => navigation.navigate("Profile")}
+          accessibilityRole="button"
+          accessibilityLabel="Profil"
+        >
+          <Text style={styles.avatarText}>{initials}</Text>
+        </TouchableOpacity>
+      </View>
 
-
-        {/* CARD FORM */}
-        <View style={styles.card}>
-          <View style={styles.tripTypeRow}>
-            <TouchableOpacity
-              style={[
-                styles.tripTypeBtn,
-                tripType === "aller simple" && styles.tripTypeActive,
-              ]}
-              onPress={() => setTripType("aller simple")}
-            >
-              <ArrowRight size={16} color={tripType === "aller simple" ? COLORS.white : COLORS.muted} />
-              <Text
-                style={[
-                  styles.tripTypeText,
-                  tripType === "aller simple" && styles.tripTypeTextActive,
-                ]}
-              >
-                Aller simple
-              </Text>
-            </TouchableOpacity>
-            <TouchableOpacity
-              style={[
-                styles.tripTypeBtn,
-                tripType === "aller retour" && styles.tripTypeActive,
-              ]}
-              onPress={() => setTripType("aller retour")}
-            >
-              <ArrowRightLeft
-                size={16}
-                color={tripType === "aller retour" ? COLORS.white : COLORS.muted}
-              />
-              <Text
-                style={[
-                  styles.tripTypeText,
-                  tripType === "aller retour" && styles.tripTypeTextActive,
-                ]}
-              >
-                Aller retour
-              </Text>
+      <ScrollView
+        style={styles.sheet}
+        contentContainerStyle={styles.sheetContent}
+        showsVerticalScrollIndicator={false}
+        refreshControl={
+          <RefreshControl
+            refreshing={refreshing}
+            onRefresh={onRefresh}
+            tintColor={COLORS.primary}
+            colors={[COLORS.primary]}
+            progressBackgroundColor={COLORS.white}
+          />
+        }
+      >
+        <View style={styles.hero}>
+          <View style={styles.heroCopy}>
+            <Text style={styles.heroTitle}>Réservez vos billets{"\n"}de transport{"\n"}en toute simplicité</Text>
+            <TouchableOpacity style={styles.heroCta} onPress={() => openSearch()} activeOpacity={0.88}>
+              <Text style={styles.heroCtaText}>Rechercher un trajet</Text>
+              <ArrowRight size={16} color={COLORS.primary} />
             </TouchableOpacity>
           </View>
+          <Image source={{ uri: BUS_IMAGE }} style={styles.heroBus} />
+        </View>
 
-          <View style={styles.routeBlock}>
-            {/* DEPARTURE */}
-            <View style={styles.inputGroup}>
-              <Text style={styles.label}>Depart</Text>
-              <TouchableOpacity
-                style={styles.input}
-                onPress={() => openCitySearch("departure")}
-                activeOpacity={0.8}
-              >
-                <ZoomMapPin />
-                <Text
-                  style={[
-                    styles.textInput,
-                    { color: departure ? COLORS.text : COLORS.muted },
-                  ]}
-                >
-                  {departure || "Selectionner un point de départ"}
-                </Text>
-              </TouchableOpacity>
-            </View>
-
-            {/* SWITCH BUTTON */}
-            <TouchableOpacity style={styles.switchFloating} onPress={() => {
-              setDeparture(destination);
-              setDestination(departure);
-              setDepartureId(destinationId);
-              setDestinationId(departureId);
-            }}>
-              <ArrowRightLeft size={16} color={COLORS.white} />
+        <View style={styles.grid}>
+          {shortcuts.map(({ label, Icon, onPress }) => (
+            <TouchableOpacity key={label} style={styles.shortcut} onPress={onPress} activeOpacity={0.85}>
+              <View style={styles.shortcutIcon}>
+                <Icon size={22} color={COLORS.primary} />
+              </View>
+              <Text style={styles.shortcutLabel}>{label}</Text>
             </TouchableOpacity>
+          ))}
+        </View>
 
-
-            {/* DESTINATION */}
-            <View style={styles.inputGroup}>
-              <Text style={styles.label}>Destination</Text>
-              <TouchableOpacity
-                style={styles.input}
-                onPress={() => openCitySearch("destination")}
-                activeOpacity={0.8}
-              >
-                <ZoomMapPin />
-                <Text
-                  style={[
-                    styles.textInput,
-                    { color: destination ? COLORS.text : COLORS.muted },
-                  ]}
-                >
-                  {destination || "Selectionner une destination"}
-                </Text>
-              </TouchableOpacity>
-            </View>
-
-
-          </View>
-
-          {/* DATE */}
-          <View style={styles.inputGroup}>
-            <Text style={styles.label}>Date</Text>
-            <View style={styles.dateOptionsRow}>
-             
-              <TouchableOpacity
-                style={[
-                  styles.dateOption,
-                  dateOption === "aujourd'hui" && styles.dateOptionActive,
-                ]}
-                onPress={() => handleDateOption("aujourd'hui")}
-              >
-                <Text
-                  style={[
-                    styles.dateOptionText,
-                    dateOption === "aujourd'hui" && styles.dateOptionTextActive,
-                  ]}
-                >
-                  Aujourd'hui
-                </Text>
-              </TouchableOpacity>
-              <TouchableOpacity
-                style={[
-                  styles.dateOption,
-                  dateOption === "demain" && styles.dateOptionActive,
-                ]}
-                onPress={() => handleDateOption("demain")}
-              >
-                <Text
-                  style={[
-                    styles.dateOptionText,
-                    dateOption === "demain" && styles.dateOptionTextActive,
-                  ]}
-                >
-                  Demain
-                </Text>
-              </TouchableOpacity>
-              <TouchableOpacity
-                style={[
-                  styles.dateOption,
-                  dateOption === "calendar" && styles.dateOptionActive,
-                ]}
-                onPress={() => {
-                  handleDateOption("calendar");
-                  calendarRef.current?.expand();
-                }}
-              >
-                <Calendar
-                  size={16}
-                  color={dateOption === "calendar" ? COLORS.white : COLORS.muted}
-                />
-                <Text
-                  style={[
-                    styles.dateOptionText,
-                    dateOption === "calendar" && styles.dateOptionTextActive,
-                  ]}
-                >
-                  {date ? formatShortDate(date).slice(0, 8) : formatShortDate(new Date()).slice(0, 8)}
-                </Text>
-              </TouchableOpacity>
-            </View>
-          </View>
-
-          {/* BUTTON */}
-          <TouchableOpacity onPress={RechercherRoute} style={styles.button}>
-            <Text style={styles.buttonText}>Rechercher</Text>
+        <View style={styles.sectionRow}>
+          <Text style={styles.sectionTitle}>Destinations populaires</Text>
+          <TouchableOpacity onPress={() => openSearch()} style={styles.seeAll}>
+            <Text style={styles.seeAllText}>Voir tout</Text>
+            <ChevronRight size={16} color={COLORS.primary} />
           </TouchableOpacity>
         </View>
 
-        {/* CARDS ROUTES */}
-        <View style={styles.cardsRoutesContainer}>
-          <Text style={styles.cardsRoutesTitle}>Destinations populaires</Text>
-          <ScrollView horizontal showsHorizontalScrollIndicator={false}>
-            {popularLoading ? (
-              <Text style={{ color: COLORS.muted, paddingVertical: 24 }}>Chargement…</Text>
-            ) : popularRoutes.length === 0 ? (
-              <Text style={{ color: COLORS.muted, paddingVertical: 24 }}>Aucune suggestion pour le moment.</Text>
-            ) : (
-              popularRoutes.map((r, index) => (
-                <TouchableOpacity
-                  key={String(r.id ?? `${r.from}-${r.to}-${index}`)}
-                  style={styles.routeCard}
-                  onPress={() => {
-                    setDeparture(r.from);
-                    setDestination(r.to);
-                    setDepartureId(r.ville_depart_id ?? r.departureId ?? null);
-                    setDestinationId(r.ville_arrivee_id ?? r.arrivalId ?? null);
-                  }}
-                >
-                  <Image source={{ uri: r.image }} style={styles.routeImage} />
-                  <View style={styles.routeOverlay} />
-                  <View style={styles.routeContent}>
-                    <Text style={styles.routeText}>
-                      {r.from} → {r.to}
-                    </Text>
-                    <Text style={styles.routePrice}>{r.price}</Text>
-                  </View>
-                </TouchableOpacity>
-              ))
-            )}
-          </ScrollView>
+        <ScrollView
+          horizontal
+          showsHorizontalScrollIndicator={false}
+          contentContainerStyle={styles.destList}
+          onScroll={(event) => {
+            const index = Math.round(event.nativeEvent.contentOffset.x / 188);
+            setActiveDot(Math.min(Math.max(index, 0), routes.length - 1));
+          }}
+          scrollEventThrottle={16}
+        >
+          {routes.map((route) => (
+            <TouchableOpacity
+              key={String(route.id)}
+              style={styles.destCard}
+              activeOpacity={0.9}
+              onPress={() => openSearch(route)}
+            >
+              <Image source={{ uri: route.image }} style={styles.destImage} />
+              <View style={styles.destBody}>
+                <Text style={styles.destFrom}>{route.from}</Text>
+                <View style={styles.destToRow}>
+                  <Text style={styles.destTo}>{route.to}</Text>
+                  <ArrowRight size={14} color={COLORS.muted} />
+                </View>
+              </View>
+            </TouchableOpacity>
+          ))}
+        </ScrollView>
+
+        <View style={styles.dots}>
+          {routes.slice(0, 5).map((route, index) => (
+            <View
+              key={String(route.id)}
+              style={[styles.dot, index === activeDot && styles.dotOn]}
+            />
+          ))}
         </View>
       </ScrollView>
-
-      <BottomSheet
-        ref={calendarRef}
-        index={-1}
-        snapPoints={calendarSnapPoints}
-        enablePanDownToClose
-        backdropComponent={renderCalendarBackdrop}
-        backgroundStyle={{ borderTopLeftRadius: 20, borderTopRightRadius: 20 }}
-       
-      >
-        <BottomSheetView style={{ padding: 15 }}>
-          <Text style={{ fontWeight: "600", fontSize: 16, marginBottom: 10 }}>
-            Selectionner une date de départ
-          </Text>
-
-          <RNCalendar
-            onDayPress={(day) => {
-              setDate(day.dateString);
-              calendarRef.current?.close();
-            }}
-            markedDates={{
-              [date]: {
-                selected: true,
-                selectedColor: COLORS.primary,
-              },
-            }}
-            theme={{
-              todayTextColor: COLORS.primary,
-              arrowColor: COLORS.primary,
-            }}
-          />
-
-          <TouchableOpacity
-            style={{
-              marginTop: 15,
-              backgroundColor: COLORS.primary,
-              padding: 14,
-              borderRadius: 10,
-              alignItems: "center",
-            }}
-            onPress={() => calendarRef.current?.close()}
-          >
-            <Text style={{ color: COLORS.white, fontWeight: "600" }}>
-              Enregistrer
-            </Text>
-          </TouchableOpacity>
-        </BottomSheetView>
-      </BottomSheet>
     </View>
   );
 }
 
 const styles = StyleSheet.create({
-  container: {
+  root: {
     flex: 1,
-    backgroundColor: COLORS.bgSoft,
-  },
-
-  header: {
     backgroundColor: COLORS.primary,
-    padding: 20,
-    borderBottomLeftRadius: 25,
-    borderBottomRightRadius: 25,
   },
-
-  headerText: {
-    color: COLORS.white,
+  topBar: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+    paddingHorizontal: 16,
+    paddingBottom: 28,
+    backgroundColor: COLORS.primary,
+  },
+  pinButton: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: "rgba(255,255,255,0.16)",
+  },
+  greeting: {
+    flex: 1,
+  },
+  hello: {
+    color: "rgba(255,255,255,0.82)",
+    fontSize: 13,
     fontWeight: "600",
+  },
+  welcome: {
+    color: COLORS.white,
+    fontSize: 15,
+    fontWeight: "800",
+    marginTop: 1,
+  },
+  wave: {
     fontSize: 14,
   },
-
-  card: {
-    backgroundColor: COLORS.card,
-    margin: 16,
-    borderRadius: 20,
+  bell: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: "rgba(255,255,255,0.16)",
+  },
+  avatar: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: COLORS.white,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  avatarText: {
+    color: COLORS.primary,
+    fontWeight: "800",
+    fontSize: 12,
+  },
+  sheet: {
+    flex: 1,
+    backgroundColor: COLORS.background,
+    borderTopLeftRadius: 28,
+    borderTopRightRadius: 28,
+    marginTop: -16,
+  },
+  sheetContent: {
     padding: 16,
-    elevation: 3,
+    paddingBottom: 28,
   },
-
-  title: {
-    color: COLORS.text,
-    marginBottom: 15,
-    fontWeight: "500",
-  },
-  tripTypeRow: {
+  hero: {
     flexDirection: "row",
-    gap: 10,
+    backgroundColor: COLORS.primary,
+    borderRadius: 22,
+    minHeight: 168,
+    overflow: "hidden",
     marginBottom: 16,
   },
-  tripTypeBtn: {
+  heroCopy: {
     flex: 1,
+    padding: 16,
+    justifyContent: "space-between",
+    zIndex: 1,
+  },
+  heroTitle: {
+    color: COLORS.white,
+    fontSize: 18,
+    fontWeight: "800",
+    lineHeight: 24,
+    letterSpacing: -0.3,
+  },
+  heroCta: {
+    alignSelf: "flex-start",
     flexDirection: "row",
     alignItems: "center",
-    justifyContent: "center",
     gap: 6,
-    borderWidth: 1,
-    borderColor: COLORS.border,
-    borderRadius: 12,
-    paddingVertical: 10,
     backgroundColor: COLORS.white,
+    borderRadius: 20,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    marginTop: 14,
   },
-  tripTypeActive: {
-    backgroundColor: COLORS.primary,
-    borderColor: COLORS.primary,
+  heroCtaText: {
+    color: COLORS.primary,
+    fontWeight: "800",
+    fontSize: 12,
   },
-  tripTypeText: {
-    color: COLORS.muted,
-    fontWeight: "600",
+  heroBus: {
+    width: 150,
+    height: "100%",
+    position: "absolute",
+    right: 0,
+    top: 0,
+    bottom: 0,
+  },
+  grid: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 12,
+    marginBottom: 22,
+  },
+  shortcut: {
+    width: "47%",
+    flexGrow: 1,
+    backgroundColor: COLORS.primarySoft,
+    borderRadius: 18,
+    minHeight: 108,
+    alignItems: "center",
+    justifyContent: "center",
+    padding: 14,
+  },
+  shortcutIcon: {
+    width: 42,
+    height: 42,
+    borderRadius: 21,
+    backgroundColor: COLORS.white,
+    alignItems: "center",
+    justifyContent: "center",
+    marginBottom: 10,
+  },
+  shortcutLabel: {
+    color: COLORS.textStrong,
+    fontWeight: "700",
+    fontSize: 13,
+    textAlign: "center",
+  },
+  sectionRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    marginBottom: 12,
+  },
+  sectionTitle: {
+    fontSize: 18,
+    fontWeight: "800",
+    color: COLORS.textStrong,
+  },
+  seeAll: {
+    flexDirection: "row",
+    alignItems: "center",
+  },
+  seeAllText: {
+    color: COLORS.primary,
+    fontWeight: "700",
     fontSize: 13,
   },
-  tripTypeTextActive: {
-    color: COLORS.white,
+  destList: {
+    gap: 12,
+    paddingRight: 4,
   },
-
-  inputGroup: {
-    marginBottom: 15,
-  },
-
-  label: {
-    color: COLORS.muted,
-    marginBottom: 5,
-  },
-
-  input: {
-    flexDirection: "row",
-    alignItems: "center",
-    borderWidth: 1,
-    borderColor: COLORS.border,
-    borderRadius: 12,
-    paddingHorizontal: 10,
-    height: 50,
+  destCard: {
+    width: 176,
     backgroundColor: COLORS.white,
-  },
-
-  textInput: {
-    flex: 1,
-    marginLeft: 10,
-    color: COLORS.text,
-  },
-
-  routeBlock: {
-    marginBottom: 5,
-    paddingTop: 4,
-    position: "relative",
-  },
-  switchFloating: {
-    position: "absolute",
-    alignSelf: "center",
-    top: "50%",
-    right: "15%",
-    marginTop: -16,
-    width: 50,
-    height: 50,
-    borderRadius: 20,
-    backgroundColor: COLORS.primary,
-    alignItems: "center",
-    justifyContent: "center",
-    elevation: 4,
-    zIndex: 10,
-  },
-  dateOptionsRow: {
-    flexDirection: "row",
-    gap: 8,
-    marginBottom: 10,
-  },
-  dateOption: {
-    flex: 1,
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "center",
-    gap: 6,
-    borderWidth: 1,
-    borderColor: COLORS.border,
-    borderRadius: 12,
-    paddingVertical: 10,
-    backgroundColor: COLORS.white,
-  },
-  dateOptionActive: {
-    backgroundColor: COLORS.primary,
-    borderColor: COLORS.primary,
-  },
-  dateOptionText: {
-    color: COLORS.muted,
-    fontWeight: "600",
-    fontSize: 12,
-  },
-  dateOptionTextActive: {
-    color: COLORS.white,
-  },
-
-  button: {
-    backgroundColor: COLORS.primary,
-    paddingVertical: 15,
-    borderRadius: 12,
-    alignItems: "center",
-    marginTop: 10,
-  },
-
-  buttonText: {
-    color: COLORS.white,
-    fontWeight: "700",
-    fontSize: 16,
-  },
-  cardsRoutesContainer: {
-    marginTop: 10,
-    paddingHorizontal: 16,
-    marginBottom: 20,
-  },
-  cardsRoutesTitle: {
-    fontSize: 16,
-    fontWeight: "700",
-    marginBottom: 10,
-    color: COLORS.text,
-  },
-  routeCard: {
-    width: 160,
-    height: 110,
-    borderRadius: 16,
-    marginRight: 12,
+    borderRadius: 18,
     overflow: "hidden",
+    borderWidth: 1,
+    borderColor: COLORS.borderLight,
   },
-  routeImage: {
+  destImage: {
     width: "100%",
-    height: "100%",
+    height: 112,
+    backgroundColor: COLORS.bgSoft,
   },
-  routeOverlay: {
-    ...StyleSheet.absoluteFillObject,
-    backgroundColor: COLORS.overlayDark,
+  destBody: {
+    paddingHorizontal: 12,
+    paddingVertical: 10,
   },
-  routeContent: {
-    position: "absolute",
-    bottom: 10,
-    left: 10,
+  destFrom: {
+    fontSize: 15,
+    fontWeight: "800",
+    color: COLORS.textStrong,
   },
-  routeText: {
-    color: COLORS.white,
-    fontWeight: "700",
-    fontSize: 14,
-  },
-  routePrice: {
-    color: COLORS.white,
-    fontSize: 12,
+  destToRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
     marginTop: 2,
   },
-  welcomeContainer: {
-    paddingHorizontal: 16,
-    paddingVertical: 10,
-
-  },
-  welcomeText: {
-    fontWeight: "700",
-    fontSize: 20,
-  },
-  welcomeSubtext: {
-    fontWeight: "500",
-    fontSize: 16,
+  destTo: {
+    fontSize: 13,
     color: COLORS.muted,
+    fontWeight: "600",
+  },
+  dots: {
+    flexDirection: "row",
+    justifyContent: "center",
+    gap: 6,
+    marginTop: 14,
+  },
+  dot: {
+    width: 6,
+    height: 6,
+    borderRadius: 3,
+    backgroundColor: COLORS.border,
+  },
+  dotOn: {
+    width: 16,
+    backgroundColor: COLORS.primary,
   },
 });

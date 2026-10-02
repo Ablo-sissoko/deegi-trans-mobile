@@ -18,6 +18,7 @@ import {
   Clock,
   Bus,
   ChevronRight,
+  ChevronUp,
   Star,
   Users,
   ArrowLeft,
@@ -334,11 +335,17 @@ export default function ListeTrajets() {
   const [activeFilter, setActiveFilter] = useState("all");
   const [sortBy, setSortBy] = useState("price");
   const [searchQuery, setSearchQuery] = useState("");
-  
+  const [searchOpen, setSearchOpen] = useState(false);
+  const searchOpacity = useRef(new Animated.Value(0)).current;
+  const searchInputRef = useRef(null);
+  const listRef = useRef(null);
+  const [showScrollTop, setShowScrollTop] = useState(false);
+  const scrollTopOpacity = useRef(new Animated.Value(0)).current;
+
   const filterSheetRef = useRef(null);
   const filterSnapPoints = useMemo(() => ["60%"], []);
   const detailSheetRef = useRef(null);
-  const detailSnapPoints = useMemo(() => ["78%", "92%"], []);
+  const detailSnapPoints = useMemo(() => ["80%"], []);
 
   const [trips, setTrips] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -381,6 +388,47 @@ export default function ListeTrajets() {
   useEffect(() => {
     loadTrips();
   }, [loadTrips]);
+
+  useEffect(() => {
+    if (!searchOpen) return;
+    searchOpacity.setValue(0);
+    Animated.timing(searchOpacity, {
+      toValue: 1,
+      duration: 180,
+      useNativeDriver: true,
+    }).start(() => searchInputRef.current?.focus());
+  }, [searchOpen, searchOpacity]);
+
+  useEffect(() => {
+    Animated.timing(scrollTopOpacity, {
+      toValue: showScrollTop ? 1 : 0,
+      duration: 180,
+      useNativeDriver: true,
+    }).start();
+  }, [showScrollTop, scrollTopOpacity]);
+
+  const onListScroll = (event) => {
+    const visible = event.nativeEvent.contentOffset.y > 220;
+    setShowScrollTop((current) => (current === visible ? current : visible));
+  };
+
+  const scrollToTop = () => {
+    listRef.current?.scrollTo({ y: 0, animated: true });
+  };
+
+  const toggleSearch = () => {
+    if (!searchOpen) {
+      setSearchOpen(true);
+      return;
+    }
+    Animated.timing(searchOpacity, {
+      toValue: 0,
+      duration: 140,
+      useNativeDriver: true,
+    }).start(({ finished }) => {
+      if (finished) setSearchOpen(false);
+    });
+  };
 
   const onRefresh = useCallback(() => {
     loadTrips({ isRefresh: true });
@@ -462,15 +510,19 @@ export default function ListeTrajets() {
     requestAnimationFrame(() => detailSheetRef.current?.expand());
   };
 
-  const handleConfirmSelect = () => {
-    if (!selectedTrip) return;
+  const selectTrip = (trip) => {
+    if (!trip) return;
     detailSheetRef.current?.close();
     navigation.navigate("Reservation", {
-      trip: selectedTrip,
+      trip,
       date,
       departure,
       destination,
     });
+  };
+
+  const handleConfirmSelect = () => {
+    selectTrip(selectedTrip);
   };
 
   const renderAmenities = (amenities) => {
@@ -512,53 +564,88 @@ export default function ListeTrajets() {
             </Text>
           </View>
 
-          <TouchableOpacity
-            onPress={() => filterSheetRef.current?.expand()}
-            style={[
-              styles.filterButton,
-              (activeFilter !== "all" || sortBy !== "price") && styles.filterButtonActive,
-            ]}
-            accessibilityRole="button"
-            accessibilityLabel="Filtres"
-          >
-            <Filter
-              size={18}
-              color={
-                activeFilter !== "all" || sortBy !== "price"
-                  ? COLORS.white
-                  : COLORS.primary
-              }
-            />
-          </TouchableOpacity>
-        </View>
-
-        
-
-        <View style={styles.searchBar}>
-          <Search size={18} color={COLORS.muted} />
-          <TextInput
-            style={styles.searchInput}
-            placeholder="Compagnie, type de bus, service…"
-            placeholderTextColor={COLORS.mutedStrong}
-            value={searchQuery}
-            onChangeText={setSearchQuery}
-            returnKeyType="search"
-            autoCorrect={false}
-            clearButtonMode="while-editing"
-          />
-          {searchQuery.length > 0 ? (
+          <View style={styles.headerActions}>
             <TouchableOpacity
-              onPress={() => setSearchQuery("")}
-              hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-              style={styles.searchClear}
+              onPress={toggleSearch}
+              style={[
+                styles.filterButton,
+                (searchOpen || searchQuery.trim().length > 0) && styles.filterButtonActive,
+              ]}
+              accessibilityRole="button"
+              accessibilityLabel="Rechercher"
             >
-              <X size={16} color={COLORS.muted} />
+              <Search
+                size={18}
+                color={searchOpen || searchQuery.trim().length > 0 ? COLORS.white : COLORS.primary}
+              />
             </TouchableOpacity>
-          ) : null}
+            <TouchableOpacity
+              onPress={() => filterSheetRef.current?.expand()}
+              style={[
+                styles.filterButton,
+                (activeFilter !== "all" || sortBy !== "price") && styles.filterButtonActive,
+              ]}
+              accessibilityRole="button"
+              accessibilityLabel="Filtres"
+            >
+              <Filter
+                size={18}
+                color={
+                  activeFilter !== "all" || sortBy !== "price"
+                    ? COLORS.white
+                    : COLORS.primary
+                }
+              />
+            </TouchableOpacity>
+          </View>
         </View>
+
+        {searchOpen ? (
+          <Animated.View
+            style={[
+              styles.searchBar,
+              {
+                opacity: searchOpacity,
+                transform: [
+                  {
+                    translateY: searchOpacity.interpolate({
+                      inputRange: [0, 1],
+                      outputRange: [-8, 0],
+                    }),
+                  },
+                ],
+              },
+            ]}
+          >
+            <Search size={18} color={COLORS.muted} />
+            <TextInput
+              ref={searchInputRef}
+              style={styles.searchInput}
+              placeholder="Compagnie, type de bus, service…"
+              placeholderTextColor={COLORS.mutedStrong}
+              value={searchQuery}
+              onChangeText={setSearchQuery}
+              returnKeyType="search"
+              autoCorrect={false}
+              clearButtonMode="while-editing"
+            />
+            {searchQuery.length > 0 ? (
+              <TouchableOpacity
+                onPress={() => setSearchQuery("")}
+                hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                style={styles.searchClear}
+              >
+                <X size={16} color={COLORS.muted} />
+              </TouchableOpacity>
+            ) : null}
+          </Animated.View>
+        ) : null}
       </View>
 
       <ScrollView
+        ref={listRef}
+        onScroll={onListScroll}
+        scrollEventThrottle={16}
         showsVerticalScrollIndicator={false}
         style={styles.tripsList}
         contentContainerStyle={styles.tripsListContent}
@@ -660,13 +747,34 @@ export default function ListeTrajets() {
                   <Text style={styles.seatsHint}>
                     {trip.availableSeats} places restantes
                   </Text>
-                  <ChevronRight size={16} color={COLORS.mutedStrong} />
+                  <TouchableOpacity
+                    style={styles.cardSelectButton}
+                    onPress={() => selectTrip(trip)}
+                    activeOpacity={0.85}
+                  >
+                    <Text style={styles.cardSelectText}>Sélectionner</Text>
+                  </TouchableOpacity>
                 </View>
               </TouchableOpacity>
             ))}
           </>
         )}
       </ScrollView>
+
+      <Animated.View
+        pointerEvents={showScrollTop ? "auto" : "none"}
+        style={[styles.scrollTopWrap, { opacity: scrollTopOpacity }]}
+      >
+        <TouchableOpacity
+          style={styles.scrollTopButton}
+          onPress={scrollToTop}
+          activeOpacity={0.85}
+          accessibilityRole="button"
+          accessibilityLabel="Remonter"
+        >
+          <ChevronUp size={22} color={COLORS.white} />
+        </TouchableOpacity>
+      </Animated.View>
 
       <BottomSheet
         ref={detailSheetRef}
@@ -1034,6 +1142,11 @@ const styles = StyleSheet.create({
     marginTop: 2,
     fontWeight: "500",
   },
+  headerActions: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+  },
   filterButton: {
     width: 40,
     height: 40,
@@ -1147,6 +1260,24 @@ const styles = StyleSheet.create({
   },
   tripsList: {
     flex: 1,
+  },
+  scrollTopWrap: {
+    position: "absolute",
+    right: 16,
+    bottom: 24,
+  },
+  scrollTopButton: {
+    width: 48,
+    height: 48,
+    borderRadius: 24,
+    backgroundColor: COLORS.primary,
+    alignItems: "center",
+    justifyContent: "center",
+    elevation: 6,
+    shadowColor: COLORS.primary,
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.28,
+    shadowRadius: 8,
   },
   tripsListContent: {
     padding: 16,
@@ -1328,6 +1459,19 @@ const styles = StyleSheet.create({
     fontSize: 12,
     color: COLORS.muted,
     fontWeight: "500",
+    flex: 1,
+    marginRight: 10,
+  },
+  cardSelectButton: {
+    backgroundColor: COLORS.primary,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 10,
+  },
+  cardSelectText: {
+    color: COLORS.white,
+    fontWeight: "700",
+    fontSize: 12,
   },
   amenitiesContainer: {
     flexDirection: "row",
